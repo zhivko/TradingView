@@ -36,8 +36,8 @@
    ```
 
 ## Usage
-1. **Email Confirmation**  
-   Click or copy the confirmation link to `/confirm-email?email=you@example.com&token=...` to set your `user_email` cookie.
+1. **Email Confirmation**
+   Click or copy the confirmation link to `/confirm-email?email=you@example.com&token=...` to establish a session with your email.
 2. **Settings**  
    - Use the form on the homepage to enter a `symbol` (e.g., BTCUSDT) and an `interval` (e.g., 5).  
    - Click **Save Settings** to POST to `/settings`.  
@@ -51,8 +51,8 @@ The authentication process is illustrated in the following diagram:
 
 ![Login Process](LoginProcess.png)
 
-Users must confirm their email by clicking the confirmation link sent to their email address. This sets the `user_email` cookie, enabling access to the application's features.
+Users must confirm their email by clicking the confirmation link sent to their email address. This establishes a session with your email, enabling access to the application's features.
 
 ## Notes
-- Authentication is cookie-based using `user_email`.  
+- Authentication is cookie-based using `user_email` (stored in Flask sessions).
 - This is a simplified version for demonstration purposes.
