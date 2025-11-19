@@ -53,13 +53,6 @@ The authentication process is illustrated in the following diagram:
 
 Users must confirm their email by clicking the confirmation link sent to their email address. This sets the `user_email` cookie, enabling access to the application's features.
 
-## Testing
-- From the project root (`c:/git/ai-trading-bot-2/V2`), run:
-  ```
-  pytest
-  ```
-- Tests cover authentication, settings storage, and data retrieval.
-
 ## Notes
 - Authentication is cookie-based using `user_email`.  
 - This is a simplified version for demonstration purposes.
