@@ -42,8 +42,16 @@
    - Use the form on the homepage to enter a `symbol` (e.g., BTCUSDT) and an `interval` (e.g., 5).  
    - Click **Save Settings** to POST to `/settings`.  
    - Click **Load Settings** to GET saved settings from the server.
-3. **Data**  
+3. **Data**
    - Click **Get Data** to GET `/data`, which returns dummy crypto data.
+
+### Authentication Process
+
+The authentication process is illustrated in the following diagram:
+
+![Login Process](LoginProcess.png)
+
+Users must confirm their email by clicking the confirmation link sent to their email address. This sets the `user_email` cookie, enabling access to the application's features.
 
 ## Testing
 - From the project root (`c:/git/ai-trading-bot-2/V2`), run:
