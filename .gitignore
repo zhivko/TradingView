@@ -1,0 +1,7 @@
+.venv/
+tests/
+.lens/
+__pycache__/
+*.pyc
+.env
+.groupedtimelineinclude

@@ -1,0 +1,11 @@
+flask
+redis
+python-dotenv
+Flask-Mail
+requests
+pybit
+Flask-SocketIO
+pandas-ta
+openai-whisper
+pydub
+httpx

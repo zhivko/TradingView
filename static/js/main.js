@@ -1,0 +1,2046 @@
+document.addEventListener('DOMContentLoaded', () => {
+  const symbolSelect = document.getElementById('symbol-select');
+  const intervalSelect = document.getElementById('interval-select');
+  const limitSelect = document.getElementById('limit-select');
+  const statusDisplay = document.getElementById('status-display');
+  const currentSymbolSpan = document.getElementById('current-symbol');
+  const currentIntervalSpan = document.getElementById('current-interval');
+  const dataPointsSpan = document.getElementById('data-points');
+  const toggleBtn = document.getElementById('toggle-right-panel');
+  const rightPanel = document.getElementById('right-panel');
+  const emailModal = document.getElementById('email-modal');
+  const modalEmailInput = document.getElementById('modal-email-input');
+  const modalSendBtn = document.getElementById('modal-send-email-btn');
+
+  const progressContainer = document.getElementById('progress-container');
+  const progressPercent = document.getElementById('progress-percent');
+  const progressBarFill = document.getElementById('progress-bar-fill');
+  const progressLabel = document.getElementById('progress-label');
+
+  const shapeStatusEl = document.getElementById('shape-properties-status');
+  const shapeCoordinatesEl = document.getElementById('shape-coordinates');
+  const shapeLineOptionsEl = document.getElementById('shape-line-options');
+  const shapeSendEmailCheckbox = document.getElementById('shape-send-email-checkbox');
+  const deleteShapeBtn = document.getElementById('delete-shape-btn');
+
+  // AI elements
+  const aiSuggestionBtn = document.getElementById('ai-suggestion-btn');
+  const aiSuggestionTextarea = document.getElementById('ai-suggestion-textarea');
+  const useLocalOllamaCheckbox = document.getElementById('use-local-ollama-checkbox');
+  const localOllamaModelDiv = document.getElementById('local-ollama-model-div');
+  const localOllamaModelSelect = document.getElementById('local-ollama-model-select');
+ 
+  async function fetchCurrentUser() {
+    try {
+      const resp = await fetch('/me');
+      if (!resp.ok) return null;
+      const data = await resp.json();
+      return data.authenticated ? data : null;
+    } catch (e) {
+      console.error('Failed to fetch current user:', e);
+      return null;
+    }
+  }
+
+  function updateUserEmailDisplay(user) {
+    const label = document.getElementById('user-email');
+    if (!label) return;
+    if (!user) {
+      label.textContent = 'Not logged in';
+    } else if (user.is_guest) {
+      label.textContent = 'Guest user';
+    } else if (user.email) {
+      label.textContent = user.email;
+    } else {
+      label.textContent = 'Authenticated';
+    }
+  }
+
+  // Toggle right panel
+  if (toggleBtn && rightPanel) {
+    toggleBtn.addEventListener('click', function() {
+      rightPanel.classList.toggle('open');
+    });
+
+    document.addEventListener('click', function(event) {
+      if (window.innerWidth <= 768) {
+        if (!rightPanel.contains(event.target) && !toggleBtn.contains(event.target)) {
+          rightPanel.classList.remove('open');
+        }
+      }
+    });
+  }
+
+  let debounceTimeout;
+  let loadDataTimeout;
+  let currentSymbol = '';
+  let currentInterval = '';
+  let selectedShapeIndex = null;
+  let hoveredShapeIndex = null;
+
+  let socket = null;
+  let currentUser = null;
+
+  let currentLoadId = 0;
+  let activeLoadId = 0;
+  let lastDisplayedProgress = 0;
+
+  let currentAbortController = null;
+  let aiChunks = {};
+  let finalChunks = {};
+  let aiComplete = false;
+
+  function setProgress(percent, message) {
+    if (!progressContainer || !progressBarFill || !progressPercent) {
+      return;
+    }
+
+    const numeric = Number(percent);
+    let clamped = Math.max(
+      0,
+      Math.min(100, Number.isFinite(numeric) ? numeric : 0)
+    );
+
+    // Enforce monotonic progress for the current load
+    if (clamped < lastDisplayedProgress) {
+      clamped = lastDisplayedProgress;
+    } else {
+      lastDisplayedProgress = clamped;
+    }
+
+    progressBarFill.style.width = `${clamped}%`;
+    progressPercent.textContent = `${clamped.toFixed(1)}%`;
+
+    if (message && statusDisplay) {
+      statusDisplay.textContent = message;
+    }
+  }
+
+  function resetProgress() {
+    lastDisplayedProgress = 0;
+    setProgress(0, 'Ready');
+  }
+
+  function mapStageToOverallProgress(stage, direction, pctStage) {
+    const p = Math.max(0, Math.min(100, Number(pctStage) || 0));
+
+    // Approximate mapping:
+    // - backfill (fetch_start, backfill): 0-50%
+    // - forward fill (fetch_end, forward): 50-90%
+    // - complete: 100%
+    if (stage === 'fetch_start' && direction === 'backfill') {
+      return 0 + (p / 100) * 50; // 0-50
+    }
+    if (stage === 'fetch_end' && direction === 'forward') {
+      return 50 + (p / 100) * 40; // 50-90
+    }
+    if (stage === 'complete') {
+      return 100;
+    }
+    if (stage === 'error') {
+      // show as "finished" but you can style differently if needed
+      return Math.max(p, 100);
+    }
+    // 'start' or unknown stages: just use p as-is
+    return p;
+  }
+
+  function initSocket() {
+    if (typeof io === 'undefined') {
+      console.warn('Socket.IO client library not loaded');
+      return;
+    }
+
+    if (!currentUser) {
+      console.warn('initSocket called without authenticated user');
+      return;
+    }
+
+    if (socket) {
+      try {
+        socket.disconnect();
+      } catch (e) {
+        console.error('Error disconnecting existing socket:', e);
+      }
+    }
+
+    socket = io();
+
+    const joinRoom = () => {
+      socket.emit('join_user_room');
+      loadData();
+    };
+
+    if (socket.connected) {
+      joinRoom();
+    } else {
+      socket.on('connect', () => {
+        console.log('Socket.IO connected');
+        joinRoom();
+      });
+    }
+
+    socket.on('progress', (payload) => {
+      if (payload.type === 'ai_progress') {
+        setProgress(payload.progress, payload.message || 'AI generating...');
+        if (payload.stage === 'complete') {
+          setTimeout(() => {
+            resetProgress();
+          }, 2000);
+        }
+        return;
+      }
+
+      if (!payload || payload.type !== 'data_progress') {
+        return;
+      }
+
+      // Require a loadId and ensure it matches the active one
+      if (payload.loadId == null) {
+        return;
+      }
+      const payloadLoadId = Number(payload.loadId);
+      if (!Number.isFinite(payloadLoadId) || payloadLoadId !== activeLoadId) {
+        return;
+      }
+
+      const rawPct =
+        typeof payload.progress === 'number'
+          ? payload.progress
+          : Number(payload.progress || 0);
+
+      const mappedPct = mapStageToOverallProgress(
+        payload.stage,
+        payload.direction,
+        rawPct
+      );
+
+      const label = payload.stage ? payload.stage.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) : 'Loading data...';
+
+      if (progressLabel) {
+        progressLabel.innerHTML = `<strong>${label}:</strong>`;
+      }
+
+      setProgress(mappedPct, label);
+
+      if (payload.stage === 'complete' || payload.stage === 'error') {
+        // Give the user a moment to see 100%, then reset
+        setTimeout(() => {
+          resetProgress();
+        }, 2000);
+      }
+    });
+
+    socket.on('connect_error', (err) => {
+      console.error('Socket.IO connection error:', err);
+    });
+
+    socket.on('ai_response', (data) => {
+      if (data.partial) {
+        if (data.is_final) {
+          finalChunks[data.chunk_id] = data.partial;
+        } else {
+          aiChunks[data.chunk_id] = data.partial;
+          if (!aiComplete) {
+            let chunks = Object.keys(aiChunks).sort((a, b) => a - b).map(k => aiChunks[k]);
+            let assembled = chunks.join('');
+            aiSuggestionTextarea.value = assembled;
+            aiSuggestionTextarea.scrollTop = aiSuggestionTextarea.scrollHeight;
+          }
+        }
+      }
+      if (data.complete) {
+        aiComplete = true;
+        let chunks = Object.keys(finalChunks).sort((a, b) => a - b).map(k => finalChunks[k]);
+        let assembled = chunks.join('');
+        aiSuggestionTextarea.value = assembled;
+        aiSuggestionTextarea.scrollTop = aiSuggestionTextarea.scrollHeight;
+      }
+    });
+
+    socket.on('ai_error', (data) => {
+      aiSuggestionTextarea.value = `Error: ${data.error}`;
+      aiSuggestionTextarea.scrollTop = aiSuggestionTextarea.scrollHeight;
+    });
+  }
+
+  // Initialize shape properties UI
+  if (shapeLineOptionsEl) {
+    shapeLineOptionsEl.style.display = 'none';
+  }
+  if (shapeSendEmailCheckbox) {
+    shapeSendEmailCheckbox.checked = false;
+    shapeSendEmailCheckbox.disabled = true;
+  }
+  if (deleteShapeBtn) {
+    deleteShapeBtn.disabled = true;
+  }
+
+  if (shapeSendEmailCheckbox) {
+    shapeSendEmailCheckbox.addEventListener('change', () => {
+      if (selectedShapeIndex === null) {
+        return;
+      }
+      const chartEl = document.getElementById('chart');
+      if (!chartEl || !chartEl.layout) {
+        return;
+      }
+      const layoutShapes = chartEl.layout.shapes || [];
+      const fullLayoutShapes =
+        chartEl._fullLayout && Array.isArray(chartEl._fullLayout.shapes)
+          ? chartEl._fullLayout.shapes
+          : [];
+ 
+      const targetShape =
+        layoutShapes[selectedShapeIndex] || fullLayoutShapes[selectedShapeIndex];
+      if (!targetShape || targetShape.type !== 'line') {
+        return;
+      }
+ 
+      const newValue = !!shapeSendEmailCheckbox.checked;
+      targetShape.sendEmailOnCross = newValue;
+      if (layoutShapes[selectedShapeIndex]) {
+        layoutShapes[selectedShapeIndex].sendEmailOnCross = newValue;
+      }
+      if (fullLayoutShapes[selectedShapeIndex]) {
+        fullLayoutShapes[selectedShapeIndex].sendEmailOnCross = newValue;
+      }
+ 
+      // Persist updated drawings (backend may choose to ignore the extra field)
+      saveDrawings(currentSymbol);
+    });
+  }
+ 
+  // Delete currently selected shape via right-panel button
+  if (deleteShapeBtn) {
+    deleteShapeBtn.addEventListener('click', async () => {
+      console.log('[deleteButton] Delete button clicked, selectedShapeIndex:', selectedShapeIndex);
+      
+      if (selectedShapeIndex === null) {
+        console.log('[deleteButton] No shape selected, aborting delete');
+        statusDisplay.textContent = 'No shape selected';
+        return;
+      }
+ 
+      const chartEl = document.getElementById('chart');
+      const gd = chartEl;
+      if (!gd || !gd.layout || !gd._fullLayout) {
+        console.log('[deleteButton] Chart not ready, aborting delete');
+        statusDisplay.textContent = 'Chart not ready';
+        return;
+      }
+ 
+      const layoutShapes = gd.layout.shapes || [];
+      const fullLayoutShapes =
+        Array.isArray(gd._fullLayout.shapes) ? gd._fullLayout.shapes : [];
+      const shapes = layoutShapes.length ? layoutShapes : fullLayoutShapes;
+ 
+      console.log('[deleteButton] Current shapes before delete:', shapes.length);
+      console.log('[deleteButton] Selected shape index:', selectedShapeIndex);
+ 
+      if (!Array.isArray(shapes) || !shapes[selectedShapeIndex]) {
+        console.log('[deleteButton] Shapes array invalid or shape not found, aborting delete');
+        statusDisplay.textContent = 'Shape not found';
+        return;
+      }
+
+      // Confirm deletion with user
+      const shapeToDelete = shapes[selectedShapeIndex];
+      const shapeType = shapeToDelete.type || 'shape';
+ 
+      // Clear selection first to avoid race conditions
+      selectedShapeIndex = null;
+      hoveredShapeIndex = null;
+ 
+      try {
+        // Update the chart immediately (remove the shape visually)
+        const newShapes = shapes.slice();
+        newShapes.splice(newShapes.indexOf(shapeToDelete), 1);
+ 
+        console.log('[deleteButton] Updating chart with new shapes array...');
+        gd.layout.shapes = newShapes;
+        if (Array.isArray(gd._fullLayout.shapes)) {
+          gd._fullLayout.shapes = newShapes;
+        }
+ 
+        updateShapePropertiesPanel();
+ 
+        // Wait for Plotly to actually update the chart before saving
+        console.log('[deleteButton] Waiting for Plotly to update chart...');
+        await Plotly.relayout(gd, { shapes: newShapes });
+        
+        console.log('[deleteButton] Chart updated, now saving to server...');
+        statusDisplay.textContent = 'Deleting shape...';
+        
+        // Only proceed with saving if we have a valid symbol
+        if (!currentSymbol) {
+          console.log('[deleteButton] No current symbol, cannot save to server');
+          statusDisplay.textContent = 'Shape deleted locally';
+          return;
+        }
+        
+        // Save to server with retry logic
+        let retries = 3;
+        while (retries > 0) {
+          try {
+            await saveDrawings(currentSymbol);
+            console.log('[deleteButton] Successfully saved deletion to server');
+            statusDisplay.textContent = 'Shape deleted successfully';
+            break;
+          } catch (saveError) {
+            console.error(`[deleteButton] Save attempt failed (${retries} retries left):`, saveError);
+            retries--;
+            if (retries > 0) {
+              await new Promise(resolve => setTimeout(resolve, 1000));
+            } else {
+              statusDisplay.textContent = 'Shape deleted locally (server save failed)';
+              console.error('[deleteButton] All save attempts failed');
+            }
+          }
+        }
+        
+        // Refresh volume profiles after successful deletion
+        console.log('[deleteButton] Refreshing volume profiles...');
+        await refreshRectangleVolumeProfiles();
+        
+        console.log('[deleteButton] Delete operation completed successfully');
+        
+      } catch (err) {
+        console.error('[deleteButton] Failed to delete shape via button:', err);
+        statusDisplay.textContent = `Delete failed: ${err.message}`;
+      }
+    });
+  }
+
+  // Modal send email / guest
+  modalSendBtn.addEventListener('click', async () => {
+    const email = modalEmailInput.value.trim();
+  
+    // No email -> guest session
+    if (!email) {
+      try {
+        const resp = await fetch('/guest-login', { method: 'POST' });
+        if (resp.ok) {
+          emailModal.style.display = 'none';
+          currentUser = await fetchCurrentUser();
+          updateUserEmailDisplay(currentUser);
+          initSocket();
+          await loadData();
+        } else {
+          alert('Failed to start guest session');
+        }
+      } catch (err) {
+        alert('Error: ' + err.message);
+      }
+      return;
+    }
+  
+    // Email provided -> start magic-link flow
+    try {
+      const resp = await fetch('/start-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      if (resp.ok) {
+        alert('Check your email for a login link to complete sign in.');
+      } else {
+        let data = {};
+        try {
+          data = await resp.json();
+        } catch (e) {}
+        alert(data.error || 'Failed to start login');
+      }
+    } catch (err) {
+      alert('Error: ' + err.message);
+    }
+  });
+
+  // Check login and load initial chart using server-side session (/me)
+  (async () => {
+    try {
+      currentUser = await fetchCurrentUser();
+      if (currentUser) {
+        updateUserEmailDisplay(currentUser);
+        emailModal.style.display = 'none';
+        initSocket();
+        await loadData();
+      } else {
+        emailModal.style.display = 'block';
+      }
+    } catch (e) {
+      console.error('Failed to initialise auth state:', e);
+      emailModal.style.display = 'block';
+    }
+  })();
+
+  // Reload data when symbol, interval, or limit changes
+  function debouncedLoadData() {
+    clearTimeout(loadDataTimeout);
+    loadDataTimeout = setTimeout(loadData, 500);
+  }
+  symbolSelect.addEventListener('change', debouncedLoadData);
+  intervalSelect.addEventListener('change', debouncedLoadData);
+  limitSelect.addEventListener('change', debouncedLoadData);
+
+  // Toolbar buttons
+  document.getElementById('autoscale-btn').addEventListener('click', () => {
+    Plotly.relayout('chart', {
+      'xaxis.autorange': true,
+      'yaxis.autorange': true
+    });
+  });
+
+  document.getElementById('pan-mode-btn').addEventListener('click', () => {
+    Plotly.relayout('chart', {
+      dragmode: 'pan'
+    });
+  });
+
+  document.getElementById('draw-rect-btn').addEventListener('click', () => {
+    Plotly.relayout('chart', {
+      dragmode: 'drawrect'
+    });
+  });
+
+  document.getElementById('draw-line-btn').addEventListener('click', () => {
+    Plotly.relayout('chart', {
+      dragmode: 'drawline'
+    });
+  });
+
+  async function loadViewRange() {
+    try {
+      const resp = await fetch('/view-range');
+      const range = await resp.json();
+      return range;
+    } catch (err) {
+      console.error('Failed to load view range:', err);
+      return {};
+    }
+  }
+
+  async function saveViewRange(range) {
+    try {
+      await fetch('/view-range', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(range),
+      });
+    } catch (err) {
+      console.error('Failed to save view range:', err);
+    }
+  }
+
+  async function loadDrawings(symbol) {
+    try {
+      const resp = await fetch(`/drawings?symbol=${encodeURIComponent(symbol)}`);
+      if (!resp.ok) {
+        console.error('Failed to load drawings:', resp.status);
+        return [];
+      }
+      const result = await resp.json();
+      return result.shapes || [];
+    } catch (err) {
+      console.error('Failed to load drawings:', err);
+      return [];
+    }
+  }
+
+  async function saveDrawings(symbol) {
+    try {
+      const chartEl = document.getElementById('chart');
+      if (!chartEl || !chartEl._fullLayout) {
+        console.log('[saveDrawings] Chart not ready, aborting save');
+        return;
+      }
+      const shapes = chartEl._fullLayout.shapes || [];
+      const customShapes = shapes.filter(shape => shape.type === 'line' || shape.type === 'rect' || shape.type === 'rectangle');
+
+      // Streamline shapes to only essential properties
+      const streamlinedShapes = customShapes.map(shape => {
+        const baseShape = {
+          type: shape.type,
+          x0: shape.x0,
+          x1: shape.x1,
+          y0: shape.y0,
+          y1: shape.y1,
+          line: {
+            color: shape.line?.color || 'black',
+            width: shape.line?.width || 2,
+            dash: shape.line?.dash || 'solid'
+          }
+        };
+
+        // Add sendEmailOnCross for lines
+        if (shape.type === 'line') {
+          baseShape.sendEmailOnCross = shape.sendEmailOnCross || false;
+        }
+
+        return baseShape;
+      });
+
+      console.log('[saveDrawings] Saving drawings - symbol:', symbol, 'total shapes:', shapes.length, 'custom shapes:', customShapes.length);
+      console.log('[saveDrawings] Streamlined shapes to save:', JSON.stringify(streamlinedShapes, null, 2));
+
+      const response = await fetch('/drawings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          symbol: symbol,
+          shapes: streamlinedShapes
+        }),
+      });
+
+      console.log('[saveDrawings] Server response status:', response.status, response.statusText);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[saveDrawings] Server returned error:', errorText);
+      } else {
+        const result = await response.json();
+        console.log('[saveDrawings] Server response:', result);
+      }
+    } catch (err) {
+      console.error('[saveDrawings] Failed to save drawings:', err);
+    }
+  }
+
+  const CLICK_THRESHOLD_PX = 25;
+  const HOVER_THRESHOLD_PX = 18;
+
+  function ensureShapeEmailPropertyDefaults(chartEl) {
+    if (!chartEl || !chartEl.layout || !chartEl._fullLayout) {
+      return;
+    }
+    const layoutShapes = chartEl.layout.shapes || [];
+    const fullLayoutShapes =
+      Array.isArray(chartEl._fullLayout.shapes) ? chartEl._fullLayout.shapes : [];
+    const maxLen = Math.max(layoutShapes.length, fullLayoutShapes.length);
+
+    for (let i = 0; i < maxLen; i++) {
+      const layoutShape = layoutShapes[i];
+      const fullShape = fullLayoutShapes[i];
+      const s = layoutShape || fullShape;
+      if (!s || s.type !== 'line') {
+        continue;
+      }
+      if (typeof s.sendEmailOnCross === 'undefined') {
+        const defaultValue = false;
+        if (layoutShape) {
+          layoutShape.sendEmailOnCross = defaultValue;
+        }
+        if (fullShape) {
+          fullShape.sendEmailOnCross = defaultValue;
+        }
+      }
+    }
+  }
+
+  function formatShapeCoord(value, isX) {
+    if (value === undefined || value === null) {
+      return 'N/A';
+    }
+
+    if (isX) {
+      const d = new Date(value);
+      if (!Number.isNaN(d.getTime())) {
+        return d.toISOString();
+      }
+    }
+
+    const num = Number(value);
+    if (Number.isFinite(num)) {
+      return num.toFixed(4);
+    }
+    return String(value);
+  }
+
+  function updateShapePropertiesPanel() {
+    if (!shapeStatusEl || !shapeCoordinatesEl) {
+      return;
+    }
+
+    const chartEl = document.getElementById('chart');
+    if (!chartEl || !chartEl.layout) {
+      shapeStatusEl.textContent = 'No shape selected.';
+      shapeCoordinatesEl.innerHTML = '';
+      if (shapeLineOptionsEl && shapeSendEmailCheckbox) {
+        shapeLineOptionsEl.style.display = 'none';
+        shapeSendEmailCheckbox.checked = false;
+        shapeSendEmailCheckbox.disabled = true;
+      }
+      if (deleteShapeBtn) {
+        deleteShapeBtn.disabled = true;
+      }
+      return;
+    }
+
+    const layoutShapes = chartEl.layout.shapes || [];
+    const fullLayoutShapes =
+      chartEl._fullLayout && Array.isArray(chartEl._fullLayout.shapes)
+        ? chartEl._fullLayout.shapes
+        : [];
+    const shapes = layoutShapes.length ? layoutShapes : fullLayoutShapes;
+
+    if (
+      selectedShapeIndex === null ||
+      !Array.isArray(shapes) ||
+      !shapes[selectedShapeIndex]
+    ) {
+      shapeStatusEl.textContent = 'No shape selected.';
+      shapeCoordinatesEl.innerHTML = '';
+      if (shapeLineOptionsEl && shapeSendEmailCheckbox) {
+        shapeLineOptionsEl.style.display = 'none';
+        shapeSendEmailCheckbox.checked = false;
+        shapeSendEmailCheckbox.disabled = true;
+      }
+      if (deleteShapeBtn) {
+        deleteShapeBtn.disabled = true;
+      }
+      return;
+    }
+
+    const shape = shapes[selectedShapeIndex];
+    const type = shape.type || 'shape';
+    shapeStatusEl.textContent = `Selected shape: ${type}`;
+
+    const x0 = formatShapeCoord(shape.x0, true);
+    const y0 = formatShapeCoord(shape.y0, false);
+    const x1 = formatShapeCoord(shape.x1, true);
+    const y1 = formatShapeCoord(shape.y1, false);
+
+    const label1 =
+      type === 'rect' || type === 'rectangle' ? 'Corner 1' : 'Point 1';
+    const label2 =
+      type === 'rect' || type === 'rectangle' ? 'Corner 2' : 'Point 2';
+
+    shapeCoordinatesEl.innerHTML =
+      `<p>${label1}: (${x0}, ${y0})</p>` +
+      `<p>${label2}: (${x1}, ${y1})</p>`;
+
+    if (shapeLineOptionsEl && shapeSendEmailCheckbox) {
+      if (type === 'line') {
+        shapeLineOptionsEl.style.display = 'block';
+        const currentValue =
+          typeof shape.sendEmailOnCross === 'boolean'
+            ? shape.sendEmailOnCross
+            : false;
+        shapeSendEmailCheckbox.disabled = false;
+        shapeSendEmailCheckbox.checked = currentValue;
+      } else {
+        shapeLineOptionsEl.style.display = 'none';
+        shapeSendEmailCheckbox.checked = false;
+        shapeSendEmailCheckbox.disabled = true;
+      }
+    }
+ 
+    if (deleteShapeBtn) {
+      // We have a valid selected shape at this point, so enable deletion.
+      deleteShapeBtn.disabled = false;
+    }
+  }
+
+  // Utility: squared distance from point p to segment vw (in pixel coordinates)
+  function distToSegmentSquared(p, v, w) {
+    const vx = w.x - v.x;
+    const vy = w.y - v.y;
+    const l2 = vx * vx + vy * vy;
+    if (l2 === 0) {
+      const dx = p.x - v.x;
+      const dy = p.y - v.y;
+      return dx * dx + dy * dy;
+    }
+    let t = ((p.x - v.x) * vx + (p.y - v.y) * vy) / l2;
+    if (t < 0) t = 0;
+    if (t > 1) t = 1;
+    const projX = v.x + t * vx;
+    const projY = v.y + t * vy;
+    const dxp = p.x - projX;
+    const dyp = p.y - projY;
+    return dxp * dxp + dyp * dyp;
+  }
+
+  // Geometry-based hit-testing helper shared by click and hover.
+  // Works in pixel coordinates using the full segment, not just the center.
+  function findClosestShapeAtPoint(
+    shapes,
+    xaxis,
+    yaxis,
+    mouseX_paper,
+    mouseY_paper,
+    thresholdPx,
+    logContext,
+    logPerShapeDistances
+  ) {
+    const thresholdSq = thresholdPx * thresholdPx;
+    let closestIndex = -1;
+    let minDistSq = Infinity;
+
+    const contextLabel = logContext === 'hover' ? '[shapes] hover' : '[shapes] click';
+
+    if (
+      !Array.isArray(shapes) ||
+      !shapes.length ||
+      !xaxis ||
+      !yaxis ||
+      typeof xaxis.d2p !== 'function' ||
+      typeof yaxis.d2p !== 'function'
+    ) {
+      console.log(contextLabel, 'findClosestShapeAtPoint: no usable shapes or axes');
+      return { closestIndex, minDistSq, thresholdSq, hitShape: false };
+    }
+
+    shapes.forEach((shape, i) => {
+      if (!shape || (shape.type !== 'line' && shape.type !== 'rect')) {
+        return;
+      }
+
+      let x0Val, x1Val, y0Val, y1Val;
+
+      if (xaxis.type === 'date') {
+        x0Val = shape.x0 instanceof Date ? shape.x0.getTime() : new Date(shape.x0).getTime();
+        x1Val = shape.x1 instanceof Date ? shape.x1.getTime() : new Date(shape.x1).getTime();
+      } else {
+        x0Val = Number(shape.x0);
+        x1Val = Number(shape.x1);
+      }
+
+      y0Val = Number(shape.y0);
+      y1Val = Number(shape.y1);
+
+      if (!Number.isFinite(x0Val) || !Number.isFinite(x1Val) || !Number.isFinite(y0Val) || !Number.isFinite(y1Val)) {
+        console.log(contextLabel, 'findClosestShapeAtPoint: skipping shape with non-finite coords', i, shape);
+        return;
+      }
+
+      if (shape.type === 'line') {
+        const p0x = xaxis.d2p(x0Val);
+        const p1x = xaxis.d2p(x1Val);
+        const p0y = yaxis.d2p(y0Val);
+        const p1y = yaxis.d2p(y1Val);
+
+        const p0 = { x: xaxis._offset + p0x, y: yaxis._offset + p0y };
+        const p1 = { x: xaxis._offset + p1x, y: yaxis._offset + p1y };
+
+        if (!Number.isFinite(p0.x) || !Number.isFinite(p0.y) || !Number.isFinite(p1.x) || !Number.isFinite(p1.y)) {
+          return;
+        }
+
+        const distSq = distToSegmentSquared({ x: mouseX_paper, y: mouseY_paper }, p0, p1);
+
+        if (logPerShapeDistances) {
+          console.log(contextLabel, 'line dist^2:', { index: i, distSq });
+        }
+
+        if (distSq < minDistSq) {
+          minDistSq = distSq;
+          closestIndex = i;
+        }
+      } else if (
+        shape.type === 'rect' ||
+        shape.type === 'rectangle' ||
+        shape.type === 'box'
+      ) {
+        const x0p = xaxis.d2p(x0Val);
+        const x1p = xaxis.d2p(x1Val);
+        const y0p = yaxis.d2p(y0Val);
+        const y1p = yaxis.d2p(y1Val);
+
+        const left = xaxis._offset + Math.min(x0p, x1p);
+        const right = xaxis._offset + Math.max(x0p, x1p);
+        const top = yaxis._offset + Math.min(y0p, y1p);
+        const bottom = yaxis._offset + Math.max(y0p, y1p);
+
+        const inside =
+          mouseX_paper >= left &&
+          mouseX_paper <= right &&
+          mouseY_paper >= top &&
+          mouseY_paper <= bottom;
+
+        if (inside) {
+          // For rectangles we consider any click inside the bounds a "hit",
+          // regardless of how far it is from the centre. To integrate with
+          // the shared threshold-based logic we just use a distance of 0.
+          const distSq = 0;
+
+          if (logPerShapeDistances) {
+            console.log(
+              contextLabel,
+              'rect hit (inside bounds), treating dist^2=0:',
+              { index: i }
+            );
+          }
+
+          if (distSq < minDistSq) {
+            minDistSq = distSq;
+            closestIndex = i;
+          }
+        }
+      }
+    });
+
+    const hitShape = closestIndex !== -1 && minDistSq <= thresholdSq;
+    console.log(contextLabel, 'closestIndex:', closestIndex, 'minDistSq:', minDistSq, 'thresholdSq:', thresholdSq);
+
+    return { closestIndex, minDistSq, thresholdSq, hitShape };
+  }
+
+  // Apply selection (red) and hover (green) styling in a single pass.
+  function applyShapeStylesForSelectionAndHover(shapes, selectedIndex, hoveredIndex) {
+    if (!Array.isArray(shapes) || !shapes.length) {
+      return [];
+    }
+
+    return shapes.map((shape, i) => {
+      const newShape = { ...shape };
+      newShape.line = { ...(shape.line || {}) };
+
+      // Remember the original color so we can restore it when deselecting / removing hover
+      if (!newShape.line._originalColor) {
+        const existingColor =
+          (shape.line && shape.line._originalColor) ||
+          (shape.line && shape.line.color) ||
+          'black';
+
+        // Treat plain 'red' as a previous "selected" state and normalise it back to black
+        newShape.line._originalColor = existingColor === 'red' ? 'black' : existingColor;
+      }
+
+      // Remember the original width so we can restore it when deselecting / removing hover
+      if (!newShape.line._originalWidth) {
+        const existingWidth =
+          (shape.line && shape.line._originalWidth) ||
+          (shape.line && typeof shape.line.width === 'number' ? shape.line.width : 1);
+        newShape.line._originalWidth = existingWidth;
+      }
+
+      const isSelected = selectedIndex !== null && i === selectedIndex;
+      const isHovered = hoveredIndex !== null && i === hoveredIndex;
+
+      if (isSelected) {
+        // Selected shape: red and slightly thicker
+        const baseWidth =
+          typeof newShape.line._originalWidth === 'number'
+            ? newShape.line._originalWidth
+            : (typeof newShape.line.width === 'number' ? newShape.line.width : 1);
+        newShape.line.color = 'red';
+        newShape.line.width = Math.max(baseWidth + 1, 3);
+      } else if (isHovered) {
+        // Hovered shape: green, but keep original width
+        newShape.line.color = 'green';
+        if (typeof newShape.line._originalWidth === 'number') {
+          newShape.line.width = newShape.line._originalWidth;
+        }
+      } else {
+        // Neither selected nor hovered: original style
+        newShape.line.color = newShape.line._originalColor;
+        if (typeof newShape.line._originalWidth === 'number') {
+          newShape.line.width = newShape.line._originalWidth;
+        }
+      }
+
+      return newShape;
+    });
+  }
+
+  // Click-based shape selection modeled after old project (chartInteractions.js: handleShapeClick)
+  async function handleShapeClick(event) {
+    const chartEl = document.getElementById('chart');
+    const gd = chartEl;
+    if (!gd || !gd._fullLayout || !gd.layout) {
+      console.log('[shapes] handleShapeClick: missing gd or layout');
+      return;
+    }
+
+    // Avoid interfering with drawing / dragging modes
+    if (gd.layout.dragmode === 'drawline' || gd.layout.dragmode === 'drawrect') {
+      return;
+    }
+
+    // Only react to primary-button clicks (ignore right/middle if present).
+    // Note: Plotly sometimes dispatches synthetic click events with isTrusted=false;
+    // we still want to use those as long as we can recover valid coordinates.
+    if (event && typeof event.button === 'number' && event.button !== 0) {
+      return;
+    }
+
+    // Plotly fires various synthetic click events; some have clientX/clientY = 0
+    // but valid offsetX/offsetY. We want to *use* any coordinates we can, and
+    // only bail out if we truly have nothing.
+    let clientX = event.clientX;
+    let clientY = event.clientY;
+
+    const baseCoords = {
+      clientX,
+      clientY,
+      offsetX: event.offsetX,
+      offsetY: event.offsetY,
+      pageX: event.pageX,
+      pageY: event.pageY,
+      type: event.type,
+      isTrusted: event.isTrusted
+    };
+    console.log('[shapes] handleShapeClick raw event coords:', baseCoords);
+
+    let hasValidClient =
+      clientX != null &&
+      clientY != null &&
+      !(clientX === 0 && clientY === 0);
+
+    // Fallback 1: use lastMouseEvent (real mousemove), like the old project.
+    if (!hasValidClient &&
+        window.lastMouseEvent &&
+        window.lastMouseEvent.clientX != null &&
+        window.lastMouseEvent.clientY != null &&
+        !(window.lastMouseEvent.clientX === 0 && window.lastMouseEvent.clientY === 0)) {
+      console.log(
+        '[shapes] handleShapeClick using lastMouseEvent coords instead of synthetic click:',
+        window.lastMouseEvent.clientX,
+        window.lastMouseEvent.clientY
+      );
+      clientX = window.lastMouseEvent.clientX;
+      clientY = window.lastMouseEvent.clientY;
+      hasValidClient = true;
+    }
+
+    // Fallback 2: reconstruct from offsetX/offsetY relative to the event target.
+    if (
+      !hasValidClient &&
+      typeof event.offsetX === 'number' &&
+      typeof event.offsetY === 'number' &&
+      event.target &&
+      typeof event.target.getBoundingClientRect === 'function'
+    ) {
+      const targetRect = event.target.getBoundingClientRect();
+      clientX = targetRect.left + event.offsetX;
+      clientY = targetRect.top + event.offsetY;
+      console.log(
+        '[shapes] handleShapeClick using offset-based derived coords:',
+        clientX,
+        clientY,
+        'offset:',
+        event.offsetX,
+        event.offsetY
+      );
+      hasValidClient = true;
+    }
+
+    if (!hasValidClient) {
+      console.log('[shapes] handleShapeClick: no valid coordinates available (client, lastMouseEvent, or offset), aborting');
+      return;
+    }
+
+    const rect = chartEl.getBoundingClientRect();
+    const mouseX_div = clientX - rect.left;
+    const mouseY_div = clientY - rect.top;
+
+    console.log('[shapes] handleShapeClick fired, client:', clientX, clientY, 'local:', mouseX_div, mouseY_div);
+
+    const mouseX_paper = mouseX_div;
+    const mouseY_paper = mouseY_div;
+
+    const fullLayout = gd._fullLayout;
+    const xaxis = fullLayout.xaxis;
+    const yaxis = fullLayout.yaxis;
+
+    if (!xaxis || !yaxis || typeof xaxis.d2p !== 'function' || typeof yaxis.d2p !== 'function') {
+      console.log('[shapes] handleShapeClick: missing xaxis/yaxis or d2p');
+      return;
+    }
+
+    const shapesLayout = gd.layout.shapes || [];
+    const shapesFull = fullLayout.shapes || [];
+    const shapes = shapesLayout.length ? shapesLayout : shapesFull;
+
+    if (!shapes.length) {
+      console.log('[shapes] handleShapeClick: no shapes in layout or fullLayout');
+      return;
+    }
+
+    // Ensure all line shapes have a sendEmailOnCross property
+    ensureShapeEmailPropertyDefaults(gd);
+
+    // Geometry-based hit testing (like the old project), but with a more
+    // reasonable distance threshold so clicks near a line are treated as hits
+    // without accidentally grabbing very distant shapes.
+    const {
+      closestIndex,
+      minDistSq,
+      thresholdSq,
+      hitShape
+    } = findClosestShapeAtPoint(
+      shapes,
+      xaxis,
+      yaxis,
+      mouseX_paper,
+      mouseY_paper,
+      CLICK_THRESHOLD_PX,
+      'click',
+      true
+    );
+
+    console.log('[shapes] handleShapeClick hit-test:', {
+      mouseX_paper,
+      mouseY_paper,
+      closestIndex,
+      minDistSq,
+      thresholdSq,
+      hitShape
+    });
+
+    // Decide what the new selected index should be (supports toggling & deselection)
+    let newSelectedIndex = selectedShapeIndex;
+
+    if (!hitShape) {
+      // Clicked on empty chart area -> clear selection
+      newSelectedIndex = null;
+    } else if (selectedShapeIndex === closestIndex) {
+      // Clicked again on the same shape -> toggle off
+      newSelectedIndex = null;
+    } else {
+      // Selected a different shape
+      newSelectedIndex = closestIndex;
+    }
+
+    const updatedShapes = applyShapeStylesForSelectionAndHover(
+      shapes,
+      newSelectedIndex,
+      hoveredShapeIndex
+    );
+
+    selectedShapeIndex = newSelectedIndex;
+
+    try {
+      console.log('[shapes] handleShapeClick applying relayout with selected index:', closestIndex, 'newSelectedIndex:', newSelectedIndex);
+      // Keep both layout.shapes and _fullLayout.shapes in sync with our updated array
+      gd.layout.shapes = updatedShapes;
+      if (Array.isArray(fullLayout.shapes) && fullLayout.shapes.length === updatedShapes.length) {
+        fullLayout.shapes = updatedShapes;
+      }
+
+      updateShapePropertiesPanel();
+
+      await Plotly.relayout(gd, { shapes: updatedShapes });
+      await saveDrawings(currentSymbol);
+    } catch (err) {
+      console.error('[shapes] handleShapeClick failed to update selected shape color:', err);
+    }
+  }
+
+  function setupShapeClickSelection() {
+    const chartEl = document.getElementById('chart');
+    console.log('[shapes] setupShapeClickSelection() called, chartEl:', chartEl);
+    if (!chartEl || !chartEl._fullLayout) {
+      console.log('[shapes] Missing chartEl or _fullLayout on setupShapeClickSelection, aborting');
+      return;
+    }
+
+    if (chartEl.__shapeClickHandlerAttached) {
+      console.log('[shapes] chartDiv shape click handler already attached');
+      return;
+    }
+    chartEl.__shapeClickHandlerAttached = true;
+
+    console.log('[shapes] Attaching chartDiv click handler for shape selection');
+    chartEl.addEventListener('click', handleShapeClick, { capture: true });
+
+    // Track lastMouseEvent (like old project) so clicks with 0,0 coords can use real mouse position,
+    // and also drive hover-based highlighting.
+    chartEl.addEventListener(
+      'mousemove',
+      (evt) => {
+        window.lastMouseEvent = evt;
+        handleShapeHover(evt);
+      },
+      { capture: true }
+    );
+
+    // Also track mouse movement at the document level so we still get real
+    // coordinates even when Plotly's internal overlays consume the chart's
+    // mousemove events. handleShapeClick() can then fall back to this when
+    // click events have bogus (0,0) client coordinates.
+    document.addEventListener(
+      'mousemove',
+      (evt) => {
+        window.lastMouseEvent = evt;
+      },
+      { capture: true }
+    );
+  }
+
+  // Hover-based shape highlighting (green), independent of selection.
+  function handleShapeHover(event) {
+    const chartEl = document.getElementById('chart');
+    const gd = chartEl;
+    if (!gd || !gd._fullLayout || !gd.layout) {
+      return;
+    }
+
+    // Avoid interfering while user is actively drawing new shapes
+    if (gd.layout.dragmode === 'drawline' || gd.layout.dragmode === 'drawrect') {
+      return;
+    }
+
+    if (typeof event.clientX !== 'number' || typeof event.clientY !== 'number') {
+      return;
+    }
+
+    const rect = chartEl.getBoundingClientRect();
+    const mouseX_div = event.clientX - rect.left;
+    const mouseY_div = event.clientY - rect.top;
+
+    const mouseX_paper = mouseX_div;
+    const mouseY_paper = mouseY_div;
+
+    const fullLayout = gd._fullLayout;
+    const xaxis = fullLayout.xaxis;
+    const yaxis = fullLayout.yaxis;
+
+    if (!xaxis || !yaxis || typeof xaxis.d2p !== 'function' || typeof yaxis.d2p !== 'function') {
+      return;
+    }
+
+    const shapesLayout = gd.layout.shapes || [];
+    const shapesFull = fullLayout.shapes || [];
+    const shapes = shapesLayout.length ? shapesLayout : shapesFull;
+
+    if (!shapes.length) {
+      return;
+    }
+
+    const {
+      closestIndex,
+      minDistSq,
+      thresholdSq,
+      hitShape
+    } = findClosestShapeAtPoint(
+      shapes,
+      xaxis,
+      yaxis,
+      mouseX_paper,
+      mouseY_paper,
+      HOVER_THRESHOLD_PX,
+      'hover',
+      false
+    );
+
+    const newHoveredIndex = hitShape ? closestIndex : null;
+
+    // Only relayout when the hovered index actually changes
+    if (newHoveredIndex === hoveredShapeIndex) {
+      return;
+    }
+
+    hoveredShapeIndex = newHoveredIndex;
+
+    console.log('[shapes] handleShapeHover:', {
+      mouseX_paper,
+      mouseY_paper,
+      hoveredShapeIndex,
+      minDistSq,
+      thresholdSq,
+      hitShape
+    });
+
+    const updatedShapes = applyShapeStylesForSelectionAndHover(
+      shapes,
+      selectedShapeIndex,
+      hoveredShapeIndex
+    );
+
+    if (!updatedShapes || !updatedShapes.length) {
+      return;
+    }
+
+    try {
+      gd.layout.shapes = updatedShapes;
+      if (Array.isArray(fullLayout.shapes) && fullLayout.shapes.length === updatedShapes.length) {
+        fullLayout.shapes = updatedShapes;
+      }
+      // Visual-only: do not persist hover styling to backend
+      Plotly.relayout(gd, { shapes: updatedShapes });
+    } catch (err) {
+      console.error('[shapes] handleShapeHover failed to update hover style:', err);
+    }
+  }
+
+  function downsampleOhlcSeries(data, maxPoints) {
+    const len = data.time.length;
+    if (len <= maxPoints) {
+      return data;
+    }
+
+    const bucketSize = Math.ceil(len / maxPoints);
+    const result = {
+      time: [],
+      open: [],
+      high: [],
+      low: [],
+      close: []
+    };
+
+    for (let start = 0; start < len; start += bucketSize) {
+      const end = Math.min(start + bucketSize, len);
+
+      const bucketOpenTime = data.time[start];
+      const bucketOpen = data.open[start];
+      let bucketHigh = data.high[start];
+      let bucketLow = data.low[start];
+      const bucketClose = data.close[end - 1];
+
+      for (let i = start + 1; i < end; i++) {
+        if (data.high[i] > bucketHigh) bucketHigh = data.high[i];
+        if (data.low[i] < bucketLow) bucketLow = data.low[i];
+      }
+
+      result.time.push(bucketOpenTime);
+      result.open.push(bucketOpen);
+      result.high.push(bucketHigh);
+      result.low.push(bucketLow);
+      result.close.push(bucketClose);
+    }
+
+    return result;
+  }
+
+  /**
+   * Create Plotly traces representing volume profile bars inside rectangles.
+   *
+   * rectVolumeProfiles: array of objects from /data or /volume_profile:
+   *   {
+   *     shape_index: Number,
+   *     x0: ms,
+   *     x1: ms,
+   *     y0: Number,
+   *     y1: Number,
+   *     volume_profile: [{ price, totalVolume }]
+   *   }
+   *
+   * shapes: Plotly layout shapes array for the current chart.
+   */
+  function createRectangleVolumeProfileBars(rectVolumeProfiles, shapes) {
+    if (
+      !Array.isArray(rectVolumeProfiles) ||
+      !rectVolumeProfiles.length ||
+      !Array.isArray(shapes) ||
+      !shapes.length
+    ) {
+      return [];
+    }
+
+    const traces = [];
+
+    rectVolumeProfiles.forEach((entry) => {
+      if (!entry || !Array.isArray(entry.volume_profile) || !entry.volume_profile.length) {
+        return;
+      }
+
+      const shapeIndex = typeof entry.shape_index === 'number' ? entry.shape_index : null;
+      if (shapeIndex === null || shapeIndex < 0 || shapeIndex >= shapes.length) {
+        return;
+      }
+
+      const shape = shapes[shapeIndex];
+      if (!shape || (shape.type !== 'rect' && shape.type !== 'rectangle' && shape.type !== 'box')) {
+        return;
+      }
+
+      const x0Ms = Number(entry.x0);
+      const x1Ms = Number(entry.x1);
+      const y0 = Number(entry.y0);
+      const y1 = Number(entry.y1);
+
+      if (!Number.isFinite(x0Ms) || !Number.isFinite(x1Ms) ||
+          !Number.isFinite(y0) || !Number.isFinite(y1)) {
+        return;
+      }
+
+      const rectTimeMin = Math.min(x0Ms, x1Ms);
+      const rectTimeMax = Math.max(x0Ms, x1Ms);
+      const priceMin = Math.min(y0, y1);
+      const priceMax = Math.max(y0, y1);
+      const priceRange = priceMax - priceMin;
+      const timeRange = rectTimeMax - rectTimeMin;
+
+      if (!Number.isFinite(priceRange) || priceRange <= 0 || !Number.isFinite(timeRange) || timeRange <= 0) {
+        return;
+      }
+
+      // Normalise levels by price and volume
+      const levels = entry.volume_profile
+        .map((lvl) => ({
+          price: Number(lvl.price),
+          totalVolume: Number(lvl.totalVolume)
+        }))
+        .filter((lvl) =>
+          Number.isFinite(lvl.price) &&
+          lvl.price >= priceMin &&
+          lvl.price <= priceMax &&
+          Number.isFinite(lvl.totalVolume) &&
+          lvl.totalVolume > 0
+        )
+        .sort((a, b) => a.price - b.price);
+
+      if (!levels.length) {
+        return;
+      }
+
+      const maxVolume = levels.reduce(
+        (acc, lvl) => (lvl.totalVolume > acc ? lvl.totalVolume : acc),
+        0
+      );
+      if (!(maxVolume > 0)) {
+        return;
+      }
+
+      // Estimate bar thickness in price units based on gaps between levels.
+      let minGap = null;
+      for (let i = 0; i < levels.length - 1; i++) {
+        const gap = levels[i + 1].price - levels[i].price;
+        if (gap > 0 && (minGap === null || gap < minGap)) {
+          minGap = gap;
+        }
+      }
+      if (!Number.isFinite(minGap) || minGap <= 0) {
+        minGap = priceRange / Math.max(levels.length, 1);
+      }
+      let barThickness = minGap * 0.8;
+      const minThickness = priceRange * 0.001;
+      const maxThickness = priceRange * 0.05;
+      if (barThickness < minThickness) barThickness = minThickness;
+      if (barThickness > maxThickness) barThickness = maxThickness;
+
+      // Max horizontal extent for bars (as fraction of rectangle width)
+      const maxBarTimeSpan = timeRange * 0.5; // 50% of rectangle width
+
+      levels.forEach((lvl) => {
+        const volumeRatio = lvl.totalVolume / maxVolume;
+        const barTimeSpan = maxBarTimeSpan * volumeRatio;
+
+        const leftTime = rectTimeMin;
+        const rightTime = rectTimeMin + barTimeSpan;
+
+        const centerPrice = lvl.price;
+        let bottomPrice = centerPrice - barThickness / 2;
+        let topPrice = centerPrice + barThickness / 2;
+
+        if (bottomPrice < priceMin) bottomPrice = priceMin;
+        if (topPrice > priceMax) topPrice = priceMax;
+
+        const xCoords = [
+          new Date(leftTime),
+          new Date(rightTime),
+          new Date(rightTime),
+          new Date(leftTime)
+        ];
+        const yCoords = [
+          bottomPrice,
+          bottomPrice,
+          topPrice,
+          topPrice
+        ];
+
+        traces.push({
+          x: xCoords,
+          y: yCoords,
+          type: 'scatter',
+          mode: 'lines',
+          line: { width: 0 },
+          fill: 'toself',
+          fillcolor: 'rgba(219, 175, 31, 0.4)',
+          hoverinfo: 'text',
+          name: `VP-rect-${shapeIndex} @ ${centerPrice.toFixed(4)}`,
+          text: `Volume profile rectangle ${shapeIndex}
+Price: ${centerPrice.toFixed(4)}
+Volume: ${lvl.totalVolume}`,
+          showlegend: false
+        });
+      });
+    });
+
+    return traces;
+  }
+
+  /**
+   * Re-fetch rectangle volume profiles from the backend and redraw only
+   * the volume-profile overlays, without reloading the main OHLC data.
+   *
+   * This is triggered after shape changes (draw / move / delete) so that
+   * rectangle volume profiles stay in sync with the user's drawings.
+   */
+  async function refreshRectangleVolumeProfiles() {
+    const chartEl = document.getElementById('chart');
+    if (!chartEl || !chartEl.layout || !chartEl._fullLayout) {
+      return;
+    }
+
+    const fullLayout = chartEl._fullLayout;
+    const shapesLayout = chartEl.layout.shapes || [];
+    const shapesFull = fullLayout.shapes || [];
+    const shapes = shapesLayout.length ? shapesLayout : shapesFull;
+
+    if (!Array.isArray(shapes) || !shapes.length) {
+      return;
+    }
+
+    // Check if there is at least one rectangle-type shape.
+    const hasRect = shapes.some((s) => {
+      if (!s || typeof s.type !== 'string') return false;
+      const t = s.type.toLowerCase();
+      return t === 'rect' || t === 'rectangle' || t === 'box';
+    });
+
+    // If no rectangles remain, strip any existing volume-profile traces.
+    if (!hasRect) {
+      const existingData = chartEl.data || [];
+      if (!existingData.length) {
+        return;
+      }
+      const candleIndex = existingData.findIndex((t) => t && t.type === 'candlestick');
+      if (candleIndex === -1) {
+        return;
+      }
+      const candleTrace = existingData[candleIndex];
+      const newData = [candleTrace];
+      try {
+        await Plotly.react(chartEl, newData, chartEl.layout);
+      } catch (err) {
+        console.error('[volume_profile] Failed to clear rectangle volume profiles:', err);
+      }
+      return;
+    }
+
+    // Derive current visible x-axis range (time window) if available.
+    let xRange = null;
+    if (
+      chartEl.layout &&
+      chartEl.layout.xaxis &&
+      Array.isArray(chartEl.layout.xaxis.range)
+    ) {
+      xRange = chartEl.layout.xaxis.range;
+    } else if (
+      fullLayout.xaxis &&
+      Array.isArray(fullLayout.xaxis.range)
+    ) {
+      xRange = fullLayout.xaxis.range;
+    }
+
+    let startTime;
+    let endTime;
+    if (Array.isArray(xRange) && xRange.length === 2) {
+      const start = new Date(xRange[0]).getTime();
+      const end = new Date(xRange[1]).getTime();
+      if (Number.isFinite(start) && Number.isFinite(end)) {
+        startTime = start;
+        endTime = end;
+      }
+    }
+
+    const params = new URLSearchParams();
+    if (currentSymbol) {
+      params.append('symbol', currentSymbol);
+    }
+    if (currentInterval) {
+      params.append('interval', currentInterval);
+    }
+
+    if (Number.isFinite(startTime) && Number.isFinite(endTime)) {
+      params.append('startTime', String(startTime));
+      params.append('endTime', String(endTime));
+    } else {
+      // Fallback: use the current "limit" selection when no explicit time window.
+      const limitSelectEl = document.getElementById('limit-select');
+      const limitValue = limitSelectEl ? limitSelectEl.value : null;
+      if (limitValue) {
+        params.append('limit', String(limitValue));
+      }
+    }
+
+    try {
+      const url = `/volume_profile?${params.toString()}`;
+      console.log('[volume_profile] Fetching updated rectangle volume profiles from', url);
+      const resp = await fetch(url, { method: 'GET' });
+      const result = await resp.json();
+
+      if (!resp.ok) {
+        console.error(
+          '[volume_profile] Failed to fetch volume profile:',
+          result && result.error ? result.error : resp.status
+        );
+        return;
+      }
+
+      const rectVolumeProfiles = Array.isArray(result.rect_volume_profiles)
+        ? result.rect_volume_profiles
+        : [];
+
+      const vpTraces = createRectangleVolumeProfileBars(rectVolumeProfiles, shapes) || [];
+
+      const existingData = chartEl.data || [];
+      if (!existingData.length) {
+        return;
+      }
+
+      // Keep the existing candlestick trace, replace any previous VP traces.
+      const candleIndex = existingData.findIndex((t) => t && t.type === 'candlestick');
+      const candleTrace = candleIndex !== -1 ? existingData[candleIndex] : existingData[0];
+      const newData = [candleTrace, ...vpTraces];
+
+      await Plotly.react(chartEl, newData, chartEl.layout);
+    } catch (err) {
+      console.error('[volume_profile] Error while refreshing rectangle volume profiles:', err);
+    }
+  }
+
+  async function plotChart(data, range = {}, shapes = [], rectVolumeProfiles = []) {
+    console.log('plotChart called with range:', range);
+    // Reset any in-memory shape selection whenever we fully (re)plot the chart
+    selectedShapeIndex = null;
+    hoveredShapeIndex = null;
+    setProgress(0, 'Chart processing progress:');
+
+    // Downsample data if necessary using OHLC aggregation
+    const originalLength = data.time.length;
+    let renderedData = data;
+    if (originalLength > 10000) {
+      const maxPoints = 1500;
+      renderedData = downsampleOhlcSeries(data, maxPoints);
+    }
+    const renderedLength = renderedData.time.length;
+    setProgress(25, 'Chart processing progress:');
+
+    // Update data points display
+    if (dataPointsSpan) {
+      dataPointsSpan.textContent = `${originalLength} / ${renderedLength}`;
+    }
+    setProgress(50, 'Chart processing progress:');
+
+    const priceTrace = {
+      x: renderedData.time.map(t => new Date(t)),
+      open: renderedData.open,
+      high: renderedData.high,
+      low: renderedData.low,
+      close: renderedData.close,
+      type: 'candlestick',
+      name: currentSymbol
+    };
+    const layout = {
+      title: `${currentSymbol} Price`,
+      dragmode: 'pan',
+      xaxis: {
+        title: 'Time',
+        rangeslider: { visible: false },
+        ...(range.xaxis && { range: range.xaxis.range })
+      },
+      yaxis: {
+        title: 'Price',
+        ...(range.yaxis && { range: range.yaxis.range })
+      },
+      shapes: shapes || [],
+      edits: {
+        shapePosition: true
+      }
+    };
+    const config = {
+      responsive: true,
+      displayModeBar: true,
+      scrollZoom: true,
+      editable: true,
+      paper_bgcolor: 'transparent',
+      plot_bgcolor: 'transparent',
+      displaylogo: false,
+      modeBarButtonsToRemove: ['zoom2d', 'zoomIn2d', 'zoomOut2d', 'autoScale2d', 'resetScale2d', 'pan2d', 'select2d', 'lasso2d', 'zoom', 'toImage', 'sendDataToCloud'],
+      modeBarButtonsToAdd: ['drawline', 'drawopenpath', 'drawclosedpath', 'drawrect', 'eraseshape']
+    };
+
+    // Combine main price trace with any rectangle volume profile traces
+    let traces = [priceTrace];
+    if (Array.isArray(rectVolumeProfiles) && rectVolumeProfiles.length && Array.isArray(shapes) && shapes.length) {
+      const vpTraces = createRectangleVolumeProfileBars(rectVolumeProfiles, shapes);
+      if (Array.isArray(vpTraces) && vpTraces.length) {
+        traces = traces.concat(vpTraces);
+      }
+    }
+
+    setProgress(75, 'Chart processing progress:');
+    console.log('Calling Plotly.newPlot');
+    Plotly.newPlot('chart', traces, layout, config).then(() => {
+      const chartEl = document.getElementById('chart');
+      ensureShapeEmailPropertyDefaults(chartEl);
+      console.log('Chart plotted, adding relayout listener');
+      // Add relayout listener
+      document.getElementById('chart').on('plotly_relayout', async (eventdata) => {
+        console.log('plotly_relayout triggered:', eventdata);
+
+        // Detect shape changes (draw/add/move/delete) and save drawings
+        const shapeChangeKeys = eventdata
+          ? Object.keys(eventdata).filter(key =>
+              key === 'shapes' ||
+              key.startsWith('shapes[') ||
+              key.startsWith('shape.')
+            )
+          : [];
+        const hasShapeChange = shapeChangeKeys.length > 0;
+        if (hasShapeChange) {
+          let totalShapes;
+          const chartEl = document.getElementById('chart');
+          if (chartEl && chartEl._fullLayout && Array.isArray(chartEl._fullLayout.shapes)) {
+            totalShapes = chartEl._fullLayout.shapes.length;
+          }
+
+          if (chartEl) {
+            ensureShapeEmailPropertyDefaults(chartEl);
+          }
+
+          if (selectedShapeIndex !== null) {
+            updateShapePropertiesPanel();
+          }
+
+          console.log('[shapes] Shape change detected, saving drawings', {
+            keys: shapeChangeKeys,
+            totalShapes
+          });
+          try {
+            await saveDrawings(currentSymbol);
+          } catch (err) {
+            console.error('Error saving drawings:', err);
+          }
+
+          // After shapes (including rectangles) change, re-fetch the latest
+          // rectangle volume profiles from the backend and redraw only the
+          // volume profile overlays. This uses the new /volume_profile
+          // endpoint and does *not* reload the core OHLC data.
+          try {
+            await refreshRectangleVolumeProfiles();
+          } catch (err) {
+            console.error('Error refreshing rectangle volume profiles:', err);
+          }
+        }
+
+        let xRange = eventdata['xaxis.range'] || (eventdata['xaxis.range[0]'] ? [eventdata['xaxis.range[0]'], eventdata['xaxis.range[1]']] : null);
+        let yRange = eventdata['yaxis.range'] || (eventdata['yaxis.range[0]'] ? [eventdata['yaxis.range[0]'], eventdata['yaxis.range[1]']] : null);
+
+        // When autoscale is triggered, Plotly often emits only *autorange* flags
+        // in eventdata (e.g. "xaxis.autorange": true) without explicit ranges.
+        // In that case, derive the actual ranges from the current layout so we
+        // can persist them via the existing /view-range endpoint.
+        if (!xRange && (eventdata['xaxis.autorange'] || eventdata['xaxis.autorange'] === true)) {
+          if (chartEl && chartEl.layout && chartEl.layout.xaxis && Array.isArray(chartEl.layout.xaxis.range)) {
+            xRange = chartEl.layout.xaxis.range;
+          } else if (chartEl && chartEl._fullLayout && chartEl._fullLayout.xaxis && Array.isArray(chartEl._fullLayout.xaxis.range)) {
+            xRange = chartEl._fullLayout.xaxis.range;
+          }
+        }
+
+        if (!yRange && (eventdata['yaxis.autorange'] || eventdata['yaxis.autorange'] === true)) {
+          if (chartEl && chartEl.layout && chartEl.layout.yaxis && Array.isArray(chartEl.layout.yaxis.range)) {
+            yRange = chartEl.layout.yaxis.range;
+          } else if (chartEl && chartEl._fullLayout && chartEl._fullLayout.yaxis && Array.isArray(chartEl._fullLayout.yaxis.range)) {
+            yRange = chartEl._fullLayout.yaxis.range;
+          }
+        }
+
+        if (xRange || yRange) {
+          console.log('Range changed, debouncing...');
+          clearTimeout(debounceTimeout);
+          debounceTimeout = setTimeout(async () => {
+            if (currentAbortController) {
+              if (socket && activeLoadId) {
+                socket.emit('cancel_load', { loadId: activeLoadId });
+              }
+              currentAbortController.abort();
+            }
+            currentAbortController = new AbortController();
+            await saveViewRange({ xaxis: { range: xRange }, yaxis: { range: yRange } });
+            console.log('View range saved');
+            console.log('Debounce timeout, fetching new data');
+            if (xRange) {
+              const startTime = new Date(xRange[0]).getTime();
+              const endTime = new Date(xRange[1]).getTime();
+              console.log('Fetching data for range:', startTime, endTime);
+
+              const loadId = ++currentLoadId;
+              activeLoadId = loadId;
+              lastDisplayedProgress = 0;
+              setProgress(0, 'Loading data...');
+
+              const url = `/data?symbol=${encodeURIComponent(currentSymbol)}&interval=${currentInterval}&startTime=${startTime}&endTime=${endTime}&loadId=${loadId}`;
+
+              try {
+                const resp = await fetch(url, { signal: currentAbortController.signal });
+                const result = await resp.json();
+                if (resp.ok) {
+                  console.log('Data fetched, replotting');
+                  const drawings = await loadDrawings(currentSymbol);
+                  await plotChart(
+                    result,
+                    { xaxis: { range: xRange }, yaxis: { range: yRange } },
+                    drawings,
+                    Array.isArray(result.rect_volume_profiles) ? result.rect_volume_profiles : []
+                  );
+                } else {
+                  console.error('Failed to fetch data:', result.error);
+                }
+              } catch (err) {
+                if (err.name === 'AbortError') {
+                  console.log('Data fetch aborted due to new pan');
+                  return;
+                }
+                console.error('Error fetching data:', err);
+              }
+            }
+          }, 1000);
+        } else {
+          console.log('No range change in eventdata');
+        }
+      });
+      // Enable selection of drawn shapes (rectangles/lines) by click
+      setupShapeClickSelection();
+      setProgress(100, 'Chart processing progress:');
+    });
+  }
+
+
+  async function loadData() {
+    console.log('Loading data');
+    try {
+      const symbol = symbolSelect.value;
+      const interval = intervalSelect.value;
+      const limit = limitSelect.value;
+
+      if (!symbol || !interval) return;
+
+      const previousSymbol = currentSymbol;
+      const symbolChanged = previousSymbol && previousSymbol !== symbol;
+
+      currentSymbol = symbol;
+      currentInterval = interval;
+      currentSymbolSpan.textContent = symbol;
+      currentIntervalSpan.textContent = interval;
+
+      const loadId = ++currentLoadId;
+      activeLoadId = loadId;
+      lastDisplayedProgress = 0;
+      setProgress(0, 'Loading data...');
+      statusDisplay.textContent = 'Loading...';
+
+      // Load view range first so the very first request is /view-range,
+      // then use that range (if available) when requesting /data.
+      const range = await loadViewRange();
+      console.log('Loaded view range before data fetch:', range);
+
+      let url = `/data?symbol=${encodeURIComponent(symbol)}&interval=${interval}`;
+
+      if (range && range.xaxis && Array.isArray(range.xaxis.range)) {
+        const [startRaw, endRaw] = range.xaxis.range;
+        const startTime = new Date(startRaw).getTime();
+        const endTime = new Date(endRaw).getTime();
+
+        if (Number.isFinite(startTime) && Number.isFinite(endTime)) {
+          url += `&startTime=${startTime}&endTime=${endTime}`;
+        } else {
+          url += `&limit=${limit}`;
+        }
+      } else {
+        url += `&limit=${limit}`;
+      }
+
+      // Attach the loadId to the request so the server can tag progress events
+      url += `&loadId=${loadId}`;
+
+      console.log('Fetching data from URL', url);
+      const resp = await fetch(url);
+      const result = await resp.json();
+      console.log('Fetch response:', resp.ok, result);
+      if (!resp.ok) {
+        throw new Error(result.error || 'Failed to fetch data');
+      }
+      dataPointsSpan.textContent = result.time.length;
+
+      const drawings = await loadDrawings(symbol);
+      console.log('Loaded drawings:', drawings);
+      await plotChart(
+        result,
+        range,
+        drawings,
+        Array.isArray(result.rect_volume_profiles) ? result.rect_volume_profiles : []
+      );
+
+      // When the symbol changes, automatically re-apply Plotly autoscaling
+      // so both axes fit the newly loaded data without requiring a manual click.
+      if (symbolChanged) {
+        try {
+          await Plotly.relayout('chart', {
+            'xaxis.autorange': true,
+            'yaxis.autorange': true
+          });
+        } catch (err) {
+          console.error('Error applying autoscale after symbol change:', err);
+        }
+      }
+
+      statusDisplay.textContent = 'Loaded successfully';
+    } catch (err) {
+      console.error('Error in loadData:', err);
+      statusDisplay.textContent = `Error: ${err.message}`;
+      setProgress(0, `Error: ${err.message}`);
+    }
+  }
+
+  // Add window resize listener to make chart responsive
+  window.addEventListener('resize', () => {
+    const chartEl = document.getElementById('chart');
+    if (chartEl && chartEl.data) {
+      Plotly.Plots.resize('chart');
+    }
+  });
+
+  // AI Features
+  let aiSuggestionAbortController = null;
+
+  async function fetchAndPopulateLocalOllamaModels() {
+    try {
+      const response = await fetch('/AI_Local_OLLAMA_Models');
+      if (!response.ok) throw new Error(`Failed to fetch local models: ${response.status}`);
+      const data = await response.json();
+      localOllamaModelSelect.innerHTML = '';
+      if (data.models && data.models.length > 0) {
+        data.models.forEach(modelName => {
+          const option = document.createElement('option');
+          option.value = modelName;
+          option.textContent = modelName;
+          localOllamaModelSelect.appendChild(option);
+        });
+      } else {
+        localOllamaModelSelect.innerHTML = '<option value="">No models found</option>';
+      }
+    } catch (error) {
+      console.error("Error fetching local Ollama models:", error);
+      localOllamaModelSelect.innerHTML = '<option value="">Error loading models</option>';
+    }
+  }
+
+  function initializeAIFeatures() {
+    console.log('Initializing AI features');
+    if (!aiSuggestionBtn || !aiSuggestionTextarea || !useLocalOllamaCheckbox || !localOllamaModelDiv || !localOllamaModelSelect) {
+      console.warn('AI elements not found, skipping AI initialization');
+      return;
+    }
+    console.log('AI elements found, setting up event listeners');
+
+    aiSuggestionBtn.addEventListener('click', async () => {
+      console.log('AI suggestion button clicked');
+      const chartEl = document.getElementById('chart');
+      if (!chartEl || !chartEl.layout || !chartEl.layout.xaxis) {
+        console.log('Chart not ready:', chartEl, chartEl?.layout, chartEl?.layout?.xaxis);
+        alert("Chart not loaded yet or x-axis not defined.");
+        aiSuggestionTextarea.value = "Error: Chart not ready.";
+        return;
+      }
+
+      if (aiSuggestionBtn.textContent.startsWith("STOP")) {
+        if (aiSuggestionAbortController) {
+          aiSuggestionAbortController.abort();
+        } else {
+          aiSuggestionBtn.textContent = "Get AI Suggestion";
+          aiSuggestionTextarea.value += "\n\n--- AI suggestion stop requested (no active process) ---";
+        }
+        return;
+      }
+
+      console.log('Starting AI suggestion request');
+      aiSuggestionTextarea.value = "Getting AI suggestion, please wait...";
+      aiSuggestionBtn.textContent = "STOP - Get AI Suggestion";
+
+      try {
+        const currentSymbol = symbolSelect.value;
+        const currentResolution = intervalSelect.value;
+        const plotlyXRange = chartEl.layout.xaxis.range;
+        let xAxisMin, xAxisMax;
+
+        if (plotlyXRange && plotlyXRange.length === 2) {
+          const convertToTimestamp = (value) => {
+            if (value instanceof Date) {
+              if (isNaN(value.getTime())) return null;
+              return Math.floor(value.getTime() / 1000);
+            } else if (typeof value === 'string') {
+              const parsedDate = new Date(value);
+              if (isNaN(parsedDate.getTime())) return null;
+              return Math.floor(parsedDate.getTime() / 1000);
+            } else if (typeof value === 'number') {
+              if (isNaN(value)) return null;
+              return Math.floor(value / 1000);
+            }
+            return null;
+          };
+          xAxisMin = convertToTimestamp(plotlyXRange[0]);
+          xAxisMax = convertToTimestamp(plotlyXRange[1]);
+          if (xAxisMin === null || xAxisMax === null || isNaN(xAxisMin) || isNaN(xAxisMax)) {
+            throw new Error("Could not parse valid time range from chart's x-axis.");
+          }
+        } else {
+          throw new Error("Could not determine time range from chart's x-axis.");
+        }
+
+        // For now, no active indicators
+        const activeIndicatorIds = [];
+
+        const requestPayload = {
+          symbol: currentSymbol,
+          resolution: currentResolution,
+          xAxisMin: xAxisMin,
+          xAxisMax: xAxisMax,
+          activeIndicatorIds: activeIndicatorIds,
+          question: "Based on the provided market data, what is your trading suggestion (BUY, SELL, or HOLD) and why?",
+          use_local_ollama: useLocalOllamaCheckbox.checked,
+          local_ollama_model_name: localOllamaModelSelect.value || null
+        };
+
+        console.log('Sending request to /AI with payload:', requestPayload);
+        aiSuggestionAbortController = new AbortController();
+        const response = await fetch('/AI', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(requestPayload),
+          signal: aiSuggestionAbortController.signal
+        });
+        console.log('Response status:', response.status);
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.log('Error response:', errorText);
+          throw new Error(`AI suggestion failed: ${response.status} ${errorText}`);
+        }
+
+        if (useLocalOllamaCheckbox.checked) {
+          aiChunks = {};
+          finalChunks = {};
+          aiSuggestionTextarea.value = "Streaming AI response...\n";
+          aiComplete = false;
+        } else {
+          const result = await response.json();
+          aiSuggestionTextarea.value = result.response || JSON.stringify(result, null, 2);
+        }
+      } catch (error) {
+        console.log('AI suggestion error:', error);
+        if (error.name === 'AbortError') {
+          aiSuggestionTextarea.value += "\n\n--- AI suggestion stopped by user ---";
+        } else {
+          aiSuggestionTextarea.value = `Error: ${error.message}`;
+        }
+      } finally {
+        aiSuggestionBtn.textContent = "Get AI Suggestion";
+        aiSuggestionAbortController = null;
+      }
+    });
+
+    useLocalOllamaCheckbox.addEventListener('change', function() {
+      localOllamaModelDiv.style.display = this.checked ? 'block' : 'none';
+      if (this.checked) fetchAndPopulateLocalOllamaModels();
+    });
+  }
+
+  // Initialize AI features
+  initializeAIFeatures();
+});
