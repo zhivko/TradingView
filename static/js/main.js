@@ -484,11 +484,78 @@ document.addEventListener('DOMContentLoaded', () => {
   limitSelect.addEventListener('change', debouncedLoadData);
 
   // Toolbar buttons
-  document.getElementById('autoscale-btn').addEventListener('click', () => {
-    Plotly.relayout('chart', {
-      'xaxis.autorange': true,
-      'yaxis.autorange': true
-    });
+  document.getElementById('autoscale-btn').addEventListener('click', async () => {
+    console.log('[DEBUG autoscale-btn] Clicked autoscale button, calculating manual ranges from data');
+    const chartEl = document.getElementById('chart');
+    if (!chartEl) {
+      console.error('[DEBUG autoscale-btn] Chart element not found');
+      return;
+    }
+
+    // Check if we have chart data to calculate ranges from
+    if (!chartEl.data || !chartEl.data.length || !chartEl.data[0]) {
+      console.error('[DEBUG autoscale-btn] No chart data available to calculate ranges');
+      return;
+    }
+
+    const traceData = chartEl.data[0];
+    if (!traceData.x || !traceData.x.length || !traceData.low || !traceData.high) {
+      console.error('[DEBUG autoscale-btn] Trace data missing x or price data');
+      return;
+    }
+
+    try {
+      // Calculate X-axis range (time) from data
+      const xValues = traceData.x.map(x => new Date(x).getTime()).filter(t => Number.isFinite(t));
+      const xMin = Math.min(...xValues);
+      const xMax = Math.max(...xValues);
+
+      if (!Number.isFinite(xMin) || !Number.isFinite(xMax) || xMin >= xMax) {
+        console.error('[DEBUG autoscale-btn] Invalid X range calculated:', { xMin, xMax });
+        return;
+      }
+
+      // Calculate Y-axis range (price) from OHLC data with padding
+      const yValues = [...traceData.low, ...traceData.high].filter(y => Number.isFinite(y));
+      const yMinBase = Math.min(...yValues);
+      const yMaxBase = Math.max(...yValues);
+
+      if (!Number.isFinite(yMinBase) || !Number.isFinite(yMaxBase) || yMinBase >= yMaxBase) {
+        console.error('[DEBUG autoscale-btn] Invalid Y range calculated:', { yMinBase, yMaxBase });
+        return;
+      }
+
+      // Add 5% padding to Y range for better visualization
+      const yPadding = (yMaxBase - yMinBase) * 0.05;
+      const yMin = Math.max(0, yMinBase - yPadding); // Don't go below 0 for prices
+      const yMax = yMaxBase + yPadding;
+
+      console.log('[DEBUG autoscale-btn] Calculated ranges:', {
+        xMin: new Date(xMin).toISOString(),
+        xMax: new Date(xMax).toISOString(),
+        yMin,
+        yMax,
+        yPadding
+      });
+
+      // Set explicit ranges calculated from data
+      await Plotly.relayout(chartEl, {
+        'xaxis.range': [new Date(xMin).toISOString(), new Date(xMax).toISOString()],
+        'yaxis.range': [yMin, yMax]
+      });
+
+      // Log range after autoscale
+      if (chartEl.layout && chartEl.layout.xaxis) {
+        console.log('[DEBUG autoscale-btn] Final xaxis range:', {
+          range: chartEl.layout.xaxis.range,
+          autorange: chartEl.layout.xaxis.autorange
+        });
+      }
+
+      console.log('[DEBUG autoscale-btn] Manual autoscale applied successfully');
+    } catch (err) {
+      console.error('[DEBUG autoscale-btn] Error applying manual autoscale:', err);
+    }
   });
 
   document.getElementById('pan-mode-btn').addEventListener('click', () => {
@@ -511,22 +578,176 @@ document.addEventListener('DOMContentLoaded', () => {
 
   async function loadViewRange() {
     try {
+      console.log('[DEBUG loadViewRange] Loading view range from server...');
       const resp = await fetch('/view-range');
       const range = await resp.json();
+      
+      console.log('[DEBUG loadViewRange] Raw response from server:', range);
+      console.log('[DEBUG loadViewRange] Range xaxis:', range.xaxis);
+      console.log('[DEBUG loadViewRange] Range yaxis:', range.yaxis);
+      
+      // Validate the loaded range to prevent using corrupted data
+      if (range && range.xaxis && Array.isArray(range.xaxis.range) && range.xaxis.range.length === 2) {
+        const [startRaw, endRaw] = range.xaxis.range;
+        
+        console.log('[DEBUG loadViewRange] Loaded X-axis range:', {
+          startRaw: startRaw,
+          endRaw: endRaw,
+          startDate: new Date(startRaw).toISOString(),
+          endDate: new Date(endRaw).toISOString()
+        });
+        
+        // Convert to timestamps and validate
+        const startTime = new Date(startRaw).getTime();
+        const endTime = new Date(endRaw).getTime();
+        
+        console.log('[DEBUG loadViewRange] Converted to timestamps:', {
+          startTime: startTime,
+          endTime: endTime
+        });
+        
+        // Check if we have valid timestamps
+        const isValid = Number.isFinite(startTime) && Number.isFinite(endTime) && 
+                       startTime > 0 && endTime > 0 && startTime < endTime;
+        
+        if (!isValid) {
+          console.warn('Invalid view range detected from server, clearing corrupted data:', startRaw, endRaw);
+          console.warn('[DEBUG loadViewRange] Validation failed:', {
+            startTimeValid: Number.isFinite(startTime),
+            endTimeValid: Number.isFinite(endTime),
+            startTimePositive: startTime > 0,
+            endTimePositive: endTime > 0,
+            startBeforeEnd: startTime < endTime
+          });
+          // Clear the corrupted data by saving a default range
+          await saveDefaultViewRange();
+          return {};
+        }
+        
+        // Additional validation: ensure reasonable time range
+        const timeRangeMs = endTime - startTime;
+        const minRangeMs = 60 * 1000; // 1 minute minimum
+        const maxRangeMs = 5 * 365 * 24 * 60 * 60 * 1000; // 5 year maximum
+        
+        if (timeRangeMs < minRangeMs || timeRangeMs > maxRangeMs) {
+          console.warn('View range too small or too large, clearing corrupted data:', timeRangeMs);
+          // Clear the corrupted data by saving a default range
+          await saveDefaultViewRange();
+          return {};
+        }
+      } else {
+        console.log('[DEBUG loadViewRange] No valid range found, returning empty object');
+      }
+      
       return range;
     } catch (err) {
       console.error('Failed to load view range:', err);
       return {};
     }
   }
+  
+  async function saveDefaultViewRange() {
+    try {
+      // Save a default view range (last 10 days)
+      const now = new Date();
+      const tenDaysAgo = new Date(now.getTime() - 10 * 24 * 60 * 60 * 1000);
+      
+      const defaultRange = {
+        xaxis: {
+          range: [tenDaysAgo.toISOString(), now.toISOString()]
+        },
+        yaxis: {
+          range: null
+        }
+      };
+      
+      await fetch('/view-range', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(defaultRange),
+      });
+      
+      console.log('Saved default view range');
+    } catch (err) {
+      console.error('Failed to save default view range:', err);
+    }
+  }
 
   async function saveViewRange(range) {
     try {
+      console.log('[DEBUG saveViewRange] Called with range:', range);
+      console.log('[DEBUG saveViewRange] Range dates:', {
+        xaxis: range.xaxis?.range ? range.xaxis.range.map(v => new Date(v).toISOString()) : 'null/undefined',
+        yaxis: range.yaxis?.range ? range.yaxis.range.map(v => new Date(v).toISOString()) : 'null/undefined'
+      });
+
+      // Handle autoscale case where ranges are null
+      if (range && (range.xaxis?.range === null || range.yaxis?.range === null)) {
+        console.log('Saving autoscale view range (null ranges)');
+        await fetch('/view-range', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(range),
+        });
+        return;
+      }
+      
+      // Validate the range before saving to prevent corruption
+      if (range && range.xaxis && Array.isArray(range.xaxis.range) && range.xaxis.range.length === 2) {
+        const [startRaw, endRaw] = range.xaxis.range;
+        
+        console.log('[DEBUG saveViewRange] Validating range:', {
+          startRaw: startRaw,
+          endRaw: endRaw,
+          startDate: new Date(startRaw).toISOString(),
+          endDate: new Date(endRaw).toISOString()
+        });
+        
+        // Convert to timestamps and validate
+        const startTime = new Date(startRaw).getTime();
+        const endTime = new Date(endRaw).getTime();
+        
+        console.log('[DEBUG saveViewRange] Converted timestamps:', {
+          startTime: startTime,
+          endTime: endTime
+        });
+        
+        // Check if we have valid timestamps
+        const isValid = Number.isFinite(startTime) && Number.isFinite(endTime) &&
+                       startTime > 0 && endTime > 0 && startTime < endTime;
+        
+        if (!isValid) {
+          console.warn('Invalid view range detected, not saving to server:', startRaw, endRaw);
+          console.warn('[DEBUG saveViewRange] Validation details:', {
+            startTimeValid: Number.isFinite(startTime),
+            endTimeValid: Number.isFinite(endTime),
+            startTimePositive: startTime > 0,
+            endTimePositive: endTime > 0,
+            startBeforeEnd: startTime < endTime
+          });
+          return;
+        }
+        
+        // Additional validation: ensure reasonable time range
+        const timeRangeMs = endTime - startTime;
+        const minRangeMs = 60 * 1000; // 1 minute minimum
+        const maxRangeMs = 5 * 365 * 24 * 60 * 60 * 1000; // 5 year maximum
+        
+        if (timeRangeMs < minRangeMs || timeRangeMs > maxRangeMs) {
+          console.warn('View range too small or too large, not saving:', timeRangeMs);
+          return;
+        }
+      } else {
+        console.log('[DEBUG saveViewRange] No array range to validate');
+      }
+      
+      console.log('[DEBUG saveViewRange] Saving range to server:', range);
       await fetch('/view-range', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(range),
       });
+      console.log('[DEBUG saveViewRange] Range saved successfully');
     } catch (err) {
       console.error('Failed to save view range:', err);
     }
@@ -881,7 +1102,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     const hitShape = closestIndex !== -1 && minDistSq <= thresholdSq;
-    console.log(contextLabel, 'closestIndex:', closestIndex, 'minDistSq:', minDistSq, 'thresholdSq:', thresholdSq);
+    // console.log(contextLabel, 'closestIndex:', closestIndex, 'minDistSq:', minDistSq, 'thresholdSq:', thresholdSq);
 
     return { closestIndex, minDistSq, thresholdSq, hitShape };
   }
@@ -1516,12 +1737,18 @@ Volume: ${lvl.totalVolume}`,
     if (
       chartEl.layout &&
       chartEl.layout.xaxis &&
-      Array.isArray(chartEl.layout.xaxis.range)
+      Array.isArray(chartEl.layout.xaxis.range) &&
+      chartEl.layout.xaxis.range.length === 2 &&
+      chartEl.layout.xaxis.range[0] != null &&
+      chartEl.layout.xaxis.range[1] != null
     ) {
       xRange = chartEl.layout.xaxis.range;
     } else if (
       fullLayout.xaxis &&
-      Array.isArray(fullLayout.xaxis.range)
+      Array.isArray(fullLayout.xaxis.range) &&
+      fullLayout.xaxis.range.length === 2 &&
+      fullLayout.xaxis.range[0] != null &&
+      fullLayout.xaxis.range[1] != null
     ) {
       xRange = fullLayout.xaxis.range;
     }
@@ -1531,10 +1758,18 @@ Volume: ${lvl.totalVolume}`,
     if (Array.isArray(xRange) && xRange.length === 2) {
       const start = new Date(xRange[0]).getTime();
       const end = new Date(xRange[1]).getTime();
-      if (Number.isFinite(start) && Number.isFinite(end)) {
+      if (Number.isFinite(start) && Number.isFinite(end) && start > 0 && end > 0) {
         startTime = start;
         endTime = end;
+      } else {
+        // Invalid timestamps detected, skip volume profile fetch
+        console.log('[volume_profile] Invalid timestamps in range, skipping time-based volume profile fetch');
+        return;
       }
+    } else {
+      // Handle autoscale case or no specific time range
+      console.log('[volume_profile] Autoscale or no specific view range detected, skipping time-based volume profile fetch');
+      return;
     }
 
     const params = new URLSearchParams();
@@ -1595,6 +1830,17 @@ Volume: ${lvl.totalVolume}`,
 
   async function plotChart(data, range = {}, shapes = [], rectVolumeProfiles = []) {
     console.log('plotChart called with range:', range);
+    console.log('[DEBUG plotChart] CALLED FROM:', new Error().stack);
+    console.log('[DEBUG plotChart] Range details:', {
+      xaxis: range.xaxis,
+      yaxis: range.yaxis,
+      xaxisRange: range.xaxis?.range,
+      xaxisRangeIsNull: range.xaxis?.range === null,
+      xaxisRangeIsUndefined: range.xaxis?.range === undefined,
+      yaxisRange: range.yaxis?.range,
+      yaxisRangeIsNull: range.yaxis?.range === null,
+      yaxisRangeIsUndefined: range.yaxis?.range === undefined
+    });
     // Reset any in-memory shape selection whenever we fully (re)plot the chart
     selectedShapeIndex = null;
     hoveredShapeIndex = null;
@@ -1616,8 +1862,9 @@ Volume: ${lvl.totalVolume}`,
     }
     setProgress(50, 'Chart processing progress:');
 
+    // Convert timestamps to ISO strings for consistent date handling
     const priceTrace = {
-      x: renderedData.time.map(t => new Date(t)),
+      x: renderedData.time.map(t => new Date(t).toISOString()),
       open: renderedData.open,
       high: renderedData.high,
       low: renderedData.low,
@@ -1625,23 +1872,83 @@ Volume: ${lvl.totalVolume}`,
       type: 'candlestick',
       name: currentSymbol
     };
+    
+    // Build xaxis configuration explicitly
+    const xaxisConfig = {
+      title: 'Time',
+      type: 'date',
+      tickformat: '%Y-%m-%d %H:%M',
+      hoverformat: '%Y-%m-%d %H:%M:%S',
+      rangeslider: { visible: false }
+    };
+    
+    // Set range or autorange for x-axis
+    if (range.xaxis && Array.isArray(range.xaxis.range) && range.xaxis.range.length === 2) {
+      // Convert range values to ISO strings
+      xaxisConfig.range = range.xaxis.range.map(v => new Date(v).toISOString());
+      console.log('[DEBUG plotChart] Setting xaxis.range to ISO strings:', xaxisConfig.range);
+    } else if (range.xaxis && range.xaxis.range === null) {
+      xaxisConfig.autorange = true;
+      console.log('[DEBUG plotChart] Setting xaxis.autorange = true');
+    } else {
+      // Default to autorange if no range specified
+      xaxisConfig.autorange = true;
+      console.log('[DEBUG plotChart] No range specified, defaulting to xaxis.autorange = true');
+    }
+    
+    // Build yaxis configuration explicitly
+    const yaxisConfig = {
+      title: 'Price'
+    };
+    
+    // Set range or autorange for y-axis
+    if (range.yaxis && Array.isArray(range.yaxis.range) && range.yaxis.range.length === 2) {
+      yaxisConfig.range = range.yaxis.range;
+      console.log('[DEBUG plotChart] Setting yaxis.range to:', yaxisConfig.range);
+    } else if (range.yaxis && range.yaxis.range === null) {
+      yaxisConfig.autorange = true;
+      console.log('[DEBUG plotChart] Setting yaxis.autorange = true');
+    } else {
+      // Default to autorange if no range specified
+      yaxisConfig.autorange = true;
+      console.log('[DEBUG plotChart] No range specified, defaulting to yaxis.autorange = true');
+    }
+    
+    // Build layout with proper range handling
     const layout = {
       title: `${currentSymbol} Price`,
       dragmode: 'pan',
-      xaxis: {
-        title: 'Time',
-        rangeslider: { visible: false },
-        ...(range.xaxis && { range: range.xaxis.range })
-      },
-      yaxis: {
-        title: 'Price',
-        ...(range.yaxis && { range: range.yaxis.range })
-      },
+      xaxis: xaxisConfig,
+      yaxis: yaxisConfig,
       shapes: shapes || [],
       edits: {
         shapePosition: true
       }
     };
+
+    // Debug logging for X-axis range being set in plotChart
+    console.log('[DEBUG plotChart] Setting X-axis range:', {
+      range: range,
+      xaxisRange: range.xaxis?.range,
+      xaxisRangeType: typeof range.xaxis?.range,
+      xaxisRangeLength: Array.isArray(range.xaxis?.range) ? range.xaxis.range.length : 'not array',
+      xaxisRangeValues: Array.isArray(range.xaxis?.range) ? range.xaxis.range.map((v, i) => `${i}: ${new Date(v).toISOString()} (${v})`) : 'not array',
+      layoutXAxisRange: layout.xaxis.range,
+      willSetRange: range.xaxis && Array.isArray(range.xaxis.range)
+    });
+
+    // More detailed logging for each range value
+    if (range.xaxis?.range && Array.isArray(range.xaxis.range)) {
+      console.log('[DEBUG plotChart] Detailed X-axis range values:', {
+        rangeArray: range.xaxis.range,
+        firstValue: range.xaxis.range[0],
+        firstValueDate: new Date(range.xaxis.range[0]).toISOString(),
+        secondValue: range.xaxis.range[1], 
+        secondValueDate: new Date(range.xaxis.range[1]).toISOString()
+      });
+    } else {
+      console.log('[DEBUG plotChart] NO X-axis range will be set (null/undefined/not array)');
+    }
     const config = {
       responsive: true,
       displayModeBar: true,
@@ -1665,6 +1972,16 @@ Volume: ${lvl.totalVolume}`,
 
     setProgress(75, 'Chart processing progress:');
     console.log('Calling Plotly.newPlot');
+    console.log('[DEBUG Plotly.newPlot] About to call Plotly.newPlot with layout:', {
+      layoutXAxis: layout.xaxis,
+      layoutXAxisRange: layout.xaxis.range,
+      layoutXAxisAutorange: layout.xaxis.autorange,
+      layoutYAxisRange: layout.yaxis.range,
+      layoutYAxisAutorange: layout.yaxis.autorange,
+      layoutXAxisRangeDates: Array.isArray(layout.xaxis.range) ? layout.xaxis.range.map(v => new Date(v).toISOString()) : 'null/undefined'
+    });
+    console.log('[DEBUG Plotly.newPlot] First 3 x values:', traces[0].x.slice(0, 3));
+    console.log('[DEBUG Plotly.newPlot] Last 3 x values:', traces[0].x.slice(-3));
     Plotly.newPlot('chart', traces, layout, config).then(() => {
       const chartEl = document.getElementById('chart');
       ensureShapeEmailPropertyDefaults(chartEl);
@@ -1721,41 +2038,67 @@ Volume: ${lvl.totalVolume}`,
         let xRange = eventdata['xaxis.range'] || (eventdata['xaxis.range[0]'] ? [eventdata['xaxis.range[0]'], eventdata['xaxis.range[1]']] : null);
         let yRange = eventdata['yaxis.range'] || (eventdata['yaxis.range[0]'] ? [eventdata['yaxis.range[0]'], eventdata['yaxis.range[1]']] : null);
 
-        // When autoscale is triggered, Plotly often emits only *autorange* flags
-        // in eventdata (e.g. "xaxis.autorange": true) without explicit ranges.
-        // In that case, derive the actual ranges from the current layout so we
-        // can persist them via the existing /view-range endpoint.
+        // DEBUG: Log extracted ranges with dates
+        console.log('[DEBUG relayout] Extracted ranges from eventdata:', {
+          xRange: xRange,
+          yRange: yRange,
+          xRangeDates: Array.isArray(xRange) ? xRange.map(v => new Date(v).toISOString()) : xRange,
+          yRangeDates: Array.isArray(yRange) ? yRange.map(v => new Date(v).toISOString()) : yRange,
+          eventdataKeys: Object.keys(eventdata)
+        });
+
+        // When autoscale is triggered, Plotly emits *autorange* flags in eventdata
+        // (e.g. "xaxis.autorange": true). For autoscale events, we should NOT
+        // refetch data - just let Plotly auto-scale to the existing data and save
+        // null ranges to indicate automatic scaling.
         if (!xRange && (eventdata['xaxis.autorange'] || eventdata['xaxis.autorange'] === true)) {
-          if (chartEl && chartEl.layout && chartEl.layout.xaxis && Array.isArray(chartEl.layout.xaxis.range)) {
-            xRange = chartEl.layout.xaxis.range;
-          } else if (chartEl && chartEl._fullLayout && chartEl._fullLayout.xaxis && Array.isArray(chartEl._fullLayout.xaxis.range)) {
-            xRange = chartEl._fullLayout.xaxis.range;
-          }
+          console.log('Autoscale detected on X axis - letting Plotly auto-scale to existing data');
+          xRange = null;
         }
 
         if (!yRange && (eventdata['yaxis.autorange'] || eventdata['yaxis.autorange'] === true)) {
-          if (chartEl && chartEl.layout && chartEl.layout.yaxis && Array.isArray(chartEl.layout.yaxis.range)) {
-            yRange = chartEl.layout.yaxis.range;
-          } else if (chartEl && chartEl._fullLayout && chartEl._fullLayout.yaxis && Array.isArray(chartEl._fullLayout.yaxis.range)) {
-            yRange = chartEl._fullLayout.yaxis.range;
-          }
+          console.log('Autoscale detected on Y axis - letting Plotly auto-scale to existing data');
+          yRange = null;
         }
 
-        if (xRange || yRange) {
-          console.log('Range changed, debouncing...');
+        // Additional fix: if we have autoscale flags but xRange/yRange are still arrays
+        // containing null values from the chart layout, set them to null explicitly
+        if (Array.isArray(xRange) && xRange.length === 2 && (xRange[0] === null || xRange[1] === null)) {
+          console.log('Detected null values in X axis range array, setting to null for autoscale');
+          xRange = null;
+        }
+
+        if (Array.isArray(yRange) && yRange.length === 2 && (yRange[0] === null || yRange[1] === null)) {
+          console.log('Detected null values in Y axis range array, setting to null for autoscale');
+          yRange = null;
+        }
+
+        // For autoscale events, save null ranges but don't fetch new data
+        // For regular range changes, save ranges and fetch new data
+        const isAutoscaleEvent = (eventdata['xaxis.autorange'] || eventdata['xaxis.autorange'] === true || 
+                                 eventdata['yaxis.autorange'] || eventdata['yaxis.autorange'] === true);
+        
+        if (xRange !== null || yRange !== null || isAutoscaleEvent) {
+          console.log('Range changed (including autoscale), debouncing...');
           clearTimeout(debounceTimeout);
           debounceTimeout = setTimeout(async () => {
             if (currentAbortController) {
+              const oldLoadId = activeLoadId;
               if (socket && activeLoadId) {
                 socket.emit('cancel_load', { loadId: activeLoadId });
               }
               currentAbortController.abort();
+              console.log(`[debounce] Aborting previous fetch for loadId: ${oldLoadId}`);
             }
             currentAbortController = new AbortController();
+
+            // Always save the range (including null ranges for autoscale)
             await saveViewRange({ xaxis: { range: xRange }, yaxis: { range: yRange } });
             console.log('View range saved');
-            console.log('Debounce timeout, fetching new data');
-            if (xRange) {
+
+            // Only fetch new data for non-autoscale events with valid ranges
+            if (!isAutoscaleEvent && xRange && Array.isArray(xRange) && xRange.length === 2) {
+              console.log('Debounce timeout, fetching new data');
               const startTime = new Date(xRange[0]).getTime();
               const endTime = new Date(xRange[1]).getTime();
               console.log('Fetching data for range:', startTime, endTime);
@@ -1764,6 +2107,7 @@ Volume: ${lvl.totalVolume}`,
               activeLoadId = loadId;
               lastDisplayedProgress = 0;
               setProgress(0, 'Loading data...');
+              console.log(`[debounce] Starting fetch for loadId: ${loadId}, time range: ${startTime} to ${endTime}`);
 
               const url = `/data?symbol=${encodeURIComponent(currentSymbol)}&interval=${currentInterval}&startTime=${startTime}&endTime=${endTime}&loadId=${loadId}`;
 
@@ -1771,6 +2115,7 @@ Volume: ${lvl.totalVolume}`,
                 const resp = await fetch(url, { signal: currentAbortController.signal });
                 const result = await resp.json();
                 if (resp.ok) {
+                  console.log(`[debounce] Fetch completed for loadId: ${loadId}, data length: ${result.time ? result.time.length : 'undefined'}`);
                   console.log('Data fetched, replotting');
                   const drawings = await loadDrawings(currentSymbol);
                   await plotChart(
@@ -1780,15 +2125,19 @@ Volume: ${lvl.totalVolume}`,
                     Array.isArray(result.rect_volume_profiles) ? result.rect_volume_profiles : []
                   );
                 } else {
+                  console.log(`[debounce] Fetch failed for loadId: ${loadId}, status: ${resp.status}`);
                   console.error('Failed to fetch data:', result.error);
                 }
               } catch (err) {
                 if (err.name === 'AbortError') {
-                  console.log('Data fetch aborted due to new pan');
+                  console.log(`[debounce] Data fetch aborted for loadId: ${loadId} due to new pan`);
                   return;
                 }
+                console.log(`[debounce] Error fetching for loadId: ${loadId}:`, err);
                 console.error('Error fetching data:', err);
               }
+            } else {
+              console.log('Autoscale detected - not fetching new data, letting Plotly auto-scale to existing data');
             }
           }, 1000);
         } else {
@@ -1829,19 +2178,41 @@ Volume: ${lvl.totalVolume}`,
       // then use that range (if available) when requesting /data.
       const range = await loadViewRange();
       console.log('Loaded view range before data fetch:', range);
+      console.log('[DEBUG loadData] Range being used for plotChart:', {
+        xaxis: range.xaxis,
+        yaxis: range.yaxis,
+        xaxisDates: range.xaxis?.range ? range.xaxis.range.map(v => new Date(v).toISOString()) : 'null'
+      });
 
       let url = `/data?symbol=${encodeURIComponent(symbol)}&interval=${interval}`;
+      let isAutoscaleLoad = false;
 
       if (range && range.xaxis && Array.isArray(range.xaxis.range)) {
         const [startRaw, endRaw] = range.xaxis.range;
         const startTime = new Date(startRaw).getTime();
         const endTime = new Date(endRaw).getTime();
 
+        console.log('[DEBUG loadData] Processing loaded range for data fetch:', {
+          startRaw: startRaw,
+          endRaw: endRaw,
+          startDate: new Date(startRaw).toISOString(),
+          endDate: new Date(endRaw).toISOString(),
+          startTime: startTime,
+          endTime: endTime
+        });
+
         if (Number.isFinite(startTime) && Number.isFinite(endTime)) {
           url += `&startTime=${startTime}&endTime=${endTime}`;
         } else {
+          console.log('Invalid time range from server, falling back to limit');
           url += `&limit=${limit}`;
         }
+      } else if (range && range.xaxis && range.xaxis.range === null) {
+        // Handle autoscale case - fetch more data for proper autoscaling
+        console.log('Autoscale view range detected, fetching more data for autoscaling');
+        isAutoscaleLoad = true;
+        // Use a much larger limit for autoscale to ensure we have enough data points to autorange properly
+        url += `&limit=${Math.max(parseInt(limit) * 10, 1000)}`;
       } else {
         url += `&limit=${limit}`;
       }
@@ -1853,6 +2224,29 @@ Volume: ${lvl.totalVolume}`,
       const resp = await fetch(url);
       const result = await resp.json();
       console.log('Fetch response:', resp.ok, result);
+      
+      // Debug: Check the actual time data being returned
+      if (result.time && Array.isArray(result.time) && result.time.length > 0) {
+        console.log('[DEBUG fetchData] First 3 time values:', result.time.slice(0, 3).map(t => ({
+          value: t,
+          date: new Date(t).toISOString(),
+          year: new Date(t).getFullYear()
+        })));
+        console.log('[DEBUG fetchData] Last 3 time values:', result.time.slice(-3).map(t => ({
+          value: t,
+          date: new Date(t).toISOString(),
+          year: new Date(t).getFullYear()
+        })));
+        console.log('[DEBUG fetchData] Time range check:', {
+          minTime: Math.min(...result.time),
+          minDate: new Date(Math.min(...result.time)).toISOString(),
+          maxTime: Math.max(...result.time), 
+          maxDate: new Date(Math.max(...result.time)).toISOString()
+        });
+      } else {
+        console.log('[DEBUG fetchData] No time data found in response');
+      }
+      
       if (!resp.ok) {
         throw new Error(result.error || 'Failed to fetch data');
       }
@@ -1871,6 +2265,7 @@ Volume: ${lvl.totalVolume}`,
       // so both axes fit the newly loaded data without requiring a manual click.
       if (symbolChanged) {
         try {
+          console.log('[DEBUG loadData] Symbol changed, applying autoscale');
           await Plotly.relayout('chart', {
             'xaxis.autorange': true,
             'yaxis.autorange': true
@@ -1895,6 +2290,63 @@ Volume: ${lvl.totalVolume}`,
       Plotly.Plots.resize('chart');
     }
   });
+
+  // Utility function to analyze timestamps for duplicates and patterns (backend mirror)
+  function analyzeTimestamps(timestamps, symbol, interval) {
+    const analysis = {
+      total: timestamps.length,
+      unique: new Set(timestamps).size,
+      duplicates: [],
+      patterns: [],
+      hasDuplicates: false,
+      duplicateCount: 0
+    };
+
+    // Find duplicates
+    const seen = new Map();
+    timestamps.forEach((ts, index) => {
+      if (seen.has(ts)) {
+        analysis.hasDuplicates = true;
+        analysis.duplicateCount++;
+        if (!analysis.duplicates.includes(ts)) {
+          analysis.duplicates.push(ts);
+        }
+        // Track consecutive duplicates
+        if (index > 0 && timestamps[index - 1] === ts) {
+          analysis.patterns.push({
+            timestamp: ts,
+            consecutiveCount: (analysis.patterns.find(p => p.timestamp === ts)?.consecutiveCount || 1) + 1,
+            date: new Date(ts).toISOString()
+          });
+        }
+      } else {
+        seen.set(ts, 1);
+      }
+    });
+
+    // Remove duplicates from patterns, keeping only the longest streak
+    const patternMap = new Map();
+    analysis.patterns.forEach(p => {
+      if (!patternMap.has(p.timestamp) || p.consecutiveCount > patternMap.get(p.timestamp).consecutiveCount) {
+        patternMap.set(p.timestamp, p);
+      }
+    });
+    analysis.patterns = Array.from(patternMap.values());
+
+    console.log(`[TIMESTAMP_ANALYSIS] ${symbol}:${interval} - ${analysis.total} total, ${analysis.unique} unique, ${analysis.duplicateCount} duplicates`);
+    if (analysis.duplicates.length > 0) {
+      console.error('[TIMESTAMP_ANALYSIS] Duplicate timestamps:', analysis.duplicates.map(ts => ({
+        timestamp: ts,
+        date: new Date(ts).toISOString(),
+        count: timestamps.filter(t => t === ts).length
+      })));
+    }
+    if (analysis.patterns.length > 0) {
+      console.error('[TIMESTAMP_ANALYSIS] Consecutive duplicates:', analysis.patterns);
+    }
+
+    return analysis;
+  }
 
   // AI Features
   let aiSuggestionAbortController = null;

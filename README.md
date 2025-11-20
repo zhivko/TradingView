@@ -26,7 +26,11 @@
 
 ## Running the App
 1. Ensure Redis server is running.
-2. Launch the Flask app:
+2. Launch the Flask app using the provided batch file (which activates the virtual environment):
+   ```
+   start_app.bat
+   ```
+   Alternatively, activate the virtual environment manually and run:
    ```
    python app.py
    ```

@@ -110,6 +110,7 @@ def upsert_klines_to_zset(
     /klines format, where:
         k[0] = open time (ms since epoch)
 
+    Timestamps are rounded to interval boundaries to prevent duplicates.
     The Redis sorted set member is the JSON-encoded kline, scored by k[0].
 
     Returns:
@@ -122,6 +123,7 @@ def upsert_klines_to_zset(
         return 0, None, None
 
     zset_key = get_klines_zset_key(symbol, interval)
+    interval_ms = get_timeframe_seconds(interval) * 1000
 
     earliest_ts: Optional[int] = None
     latest_ts: Optional[int] = None
@@ -132,21 +134,27 @@ def upsert_klines_to_zset(
         if not k:
             continue
         try:
-            ts = int(k[0])
-            if ts in seen:
+            # Round timestamp to interval boundary to prevent duplicates
+            original_ts = int(k[0])
+            rounded_ts = (original_ts // interval_ms) * interval_ms
+
+            # Update the kline with rounded timestamp
+            k[0] = rounded_ts
+
+            if rounded_ts in seen:
                 continue
-            seen.add(ts)
+            seen.add(rounded_ts)
         except (TypeError, ValueError):
             # Skip malformed entries
             continue
 
-        if earliest_ts is None or ts < earliest_ts:
-            earliest_ts = ts
-        if latest_ts is None or ts > latest_ts:
-            latest_ts = ts
+        if earliest_ts is None or rounded_ts < earliest_ts:
+            earliest_ts = rounded_ts
+        if latest_ts is None or rounded_ts > latest_ts:
+            latest_ts = rounded_ts
 
         member = json.dumps(k, separators=(",", ":"))
-        pipe.zadd(zset_key, {member: ts}, nx=True)
+        pipe.zadd(zset_key, {member: rounded_ts}, nx=True)
 
     results = pipe.execute()
     # Each zadd returns 1 if a new member was added, 0 otherwise.
@@ -284,251 +292,6 @@ def ms_to_iso(ms: int) -> str:
         return str(ms)
 
 
-def migrate_klines_series_to_zset(symbol: str, interval: str) -> None:
-    """
-    Migrate a single (symbol, interval) series from the legacy JSON list key:
-
-        klines:{symbol}:{interval}
-
-    into the new Redis sorted set key:
-
-        klines_z:{symbol}:{interval}
-
-    plus metadata stored under:
-
-        klines_meta:{symbol}:{interval}
-
-    This function is designed to be safe and idempotent:
-
-    - If metadata already has `migrated=True`, it logs and returns.
-    - If the legacy key is missing or invalid, it writes an empty migrated meta
-      record and returns.
-    - It uses ZADD NX semantics to avoid duplicating existing klines.
-    - It only marks `migrated=True` after all batches have been processed
-      successfully.
-    """
-    legacy_key = f"klines:{symbol}:{interval}"
-    zset_key = get_klines_zset_key(symbol, interval)
-    meta_key = get_klines_meta_key(symbol, interval)
-
-    app.logger.info(
-        "Starting klines migration for symbol=%s interval=%s legacy_key=%s zset_key=%s meta_key=%s",
-        symbol,
-        interval,
-        legacy_key,
-        zset_key,
-        meta_key,
-    )
-
-    # Read legacy JSON blob
-    try:
-        data = r.get(legacy_key)
-    except Exception:
-        app.logger.exception(
-            "Failed to read legacy klines key=%s for symbol=%s interval=%s",
-            legacy_key,
-            symbol,
-            interval,
-        )
-        # Do not mark as migrated so the operation can be retried.
-        raise
-
-    # No legacy data at all: mark as migrated with empty meta.
-    if not data:
-        meta = {
-            "migrated": True,
-            "version": 1,
-            "earliest": None,
-            "latest": None,
-            "count": 0,
-        }
-        save_klines_meta(symbol, interval, meta)
-        app.logger.info(
-            "No legacy klines found for symbol=%s interval=%s; "
-            "marked as migrated with empty metadata",
-            symbol,
-            interval,
-        )
-        return
-
-    # Parse legacy JSON
-    try:
-        klines = json.loads(data)
-    except Exception:
-        app.logger.exception(
-            "Failed to parse legacy klines JSON for symbol=%s interval=%s",
-            symbol,
-            interval,
-        )
-        meta = {
-            "migrated": True,
-            "version": 1,
-            "earliest": None,
-            "latest": None,
-            "count": 0,
-        }
-        save_klines_meta(symbol, interval, meta)
-        return
-
-    # Expect a non-empty list of klines
-    if not isinstance(klines, list) or not klines:
-        meta = {
-            "migrated": True,
-            "version": 1,
-            "earliest": None,
-            "latest": None,
-            "count": 0,
-        }
-        save_klines_meta(symbol, interval, meta)
-        app.logger.info(
-            "Legacy klines for symbol=%s interval=%s is empty or not a list; "
-            "marked as migrated with empty metadata",
-            symbol,
-            interval,
-        )
-        return
-
-    # Ensure klines are sorted by open time (k[0])
-    try:
-        klines.sort(key=lambda k: k[0])
-    except Exception:
-        app.logger.exception(
-            "Failed to sort legacy klines for symbol=%s interval=%s",
-            symbol,
-            interval,
-        )
-        raise
-
-    batch_size = 5000
-    overall_earliest: Optional[int] = None
-    overall_latest: Optional[int] = None
-    total_added = 0
-
-    try:
-        for i in range(0, len(klines), batch_size):
-            batch = klines[i : i + batch_size]
-            added_count, batch_earliest, batch_latest = upsert_klines_to_zset(
-                symbol, interval, batch
-            )
-
-            total_added += int(added_count or 0)
-
-            # Track overall earliest/latest for this migration
-            if batch_earliest is not None:
-                overall_earliest = (
-                    batch_earliest
-                    if overall_earliest is None
-                    else min(int(overall_earliest), int(batch_earliest))
-                )
-            if batch_latest is not None:
-                overall_latest = (
-                    batch_latest
-                    if overall_latest is None
-                    else max(int(overall_latest), int(batch_latest))
-                )
-
-            # Update metadata incrementally after each batch
-            update_klines_meta_after_insert(
-                symbol,
-                interval,
-                batch_earliest,
-                batch_latest,
-                added_count,
-            )
-    except Exception:
-        app.logger.exception(
-            "Error while migrating klines into zset for symbol=%s interval=%s",
-            symbol,
-            interval,
-        )
-        # Do not mark as migrated so we can safely retry later.
-        raise
-
-    # Finalize metadata: recompute earliest/latest/count from klines,
-    # but preserve any other fields that may have been present.
-    final_meta = load_klines_meta(symbol, interval)
-
-    if klines:
-        try:
-            earliest_ts = int(klines[0][0])
-            latest_ts = int(klines[-1][0])
-        except Exception:
-            earliest_ts = overall_earliest
-            latest_ts = overall_latest
-    else:
-        earliest_ts = None
-        latest_ts = None
-
-    final_meta["earliest"] = int(earliest_ts) if earliest_ts is not None else None
-    final_meta["latest"] = int(latest_ts) if latest_ts is not None else None
-    final_meta["count"] = int(len(klines))
-
-    existing_version = final_meta.get("version", 0) or 0
-    final_meta["version"] = max(int(existing_version), 1)
-    final_meta["migrated"] = True
-
-    save_klines_meta(symbol, interval, final_meta)
-
-    app.logger.info(
-        "Completed klines migration for symbol=%s interval=%s; "
-        "earliest=%s latest=%s count=%d total_added=%d",
-        symbol,
-        interval,
-        final_meta.get("earliest"),
-        final_meta.get("latest"),
-        final_meta.get("count"),
-        total_added,
-    )
-
-
-def migrate_all_klines_to_zset():
-    """
-    Migrate all (symbol, interval) kline series from the legacy JSON list keys
-    into the new sorted-set + metadata format.
-
-    This is intended to be run manually (e.g. via the MIGRATE_KLINES_TO_ZSET
-    environment variable) and is safe to re-run: any series that already has
-    `migrated=True` in its metadata will be skipped.
-    """
-    start = time.time()
-    total_pairs = 0
-    migrated_pairs = 0
-
-    for symbol in SUPPORTED_SYMBOLS:
-        for interval in SUPPORTED_RESOLUTIONS:
-            total_pairs += 1
-            pair_start = time.time()
-            try:
-                app.logger.info(
-                    "Migrating klines series symbol=%s interval=%s",
-                    symbol,
-                    interval,
-                )
-                migrate_klines_series_to_zset(symbol, interval)
-                migrated_pairs += 1
-                pair_ms = (time.time() - pair_start) * 1000
-                app.logger.info(
-                    "Completed migration for symbol=%s interval=%s in %.2f ms",
-                    symbol,
-                    interval,
-                    pair_ms,
-                )
-            except Exception:
-                app.logger.exception(
-                    "Migration failed for symbol=%s interval=%s",
-                    symbol,
-                    interval,
-                )
-
-    total_ms = (time.time() - start) * 1000
-    app.logger.info(
-        "Migration summary: migrated_pairs=%d total_pairs=%d total_ms=%.2f",
-        migrated_pairs,
-        total_pairs,
-        total_ms,
-    )
-
-
 # Logging configuration
 os.makedirs("logs", exist_ok=True)
 
@@ -654,21 +417,27 @@ def start_background_fetch():
     executor = ThreadPoolExecutor(max_workers=8)
 
     def fetch_loop():
-        while True:
-            # First, discover all gaps across all (symbol, interval) pairs.
-            gap_tasks = []  # (symbol, interval, gap_start, gap_end, interval_ms, now_ms)
+            while True:
+                # First, discover all gaps across all (symbol, interval) pairs.
+                gap_tasks = []  # (symbol, interval, gap_start, gap_end, interval_ms, now_ms)
+                started_gap_symbols_intervals = set()
             for symbol in SUPPORTED_SYMBOLS:
                 for interval in SUPPORTED_RESOLUTIONS:
                     try:
                         zset_key = get_klines_zset_key(symbol, interval)
 
+                        gap_fill_running_key = f'gap_fill_running:{symbol}:{interval}'
                         last_gap_fill_key = f'last_gap_fill:{symbol}:{interval}'
                         last_fill = r.get(last_gap_fill_key)
                         current_time_sec = int(time.time())
                         now_ms = current_time_sec * 1000
 
-                        # Hourly gap fill per (symbol, interval)
-                        if not last_fill or int(last_fill) < current_time_sec - 3600:
+                        # Hourly gap fill per (symbol, interval) - only if not already running
+                        is_running = r.get(gap_fill_running_key)
+                        if (not last_fill or int(last_fill) < current_time_sec - 3600) and not is_running:
+                            # Set running flag with 2 hour expiration (safety valve)
+                            r.set(gap_fill_running_key, str(current_time_sec), ex=7200)
+
                             interval_ms = get_timeframe_seconds(interval) * 1000
                             bootstrap_start_ms = 1577836800000
 
@@ -783,6 +552,14 @@ def start_background_fetch():
                             )
                             new_klines = resp.json()
                             if new_klines:
+                                # Validate candle continuity before storing
+                                if not validate_kline_continuity(new_klines, symbol, interval, latest_logger):
+                                    latest_logger.warning(
+                                        "Skipping storage of corrupted latest klines batch: symbol=%s interval=%s batch_size=%d",
+                                        symbol, interval, len(new_klines)
+                                    )
+                                    # Skip this batch but continue with next cycle - exit the try-except block cleanly
+                                    continue
                                 added_count, batch_earliest, batch_latest = upsert_klines_to_zset(
                                     symbol, interval, new_klines
                                 )
@@ -848,6 +625,8 @@ def start_background_fetch():
                             gap_logger,
                             app.logger,
                             now_ms,
+                            r,  # Redis client
+                            "gap_fill_running:{symbol}:{interval}",  # key template
                         )
                     )
 
@@ -1067,6 +846,133 @@ def log_route(func):
                 func.__name__, request.path, request.method, duration_ms
             )
     return wrapper
+
+
+def validate_kline_continuity(new_klines, symbol, interval, logger):
+    """
+    Validate that consecutive klines have proper continuity (close[i] ≈ open[i+1]).
+
+    Returns True if validation passes, False if continuity violations found.
+    """
+    if not new_klines or len(new_klines) < 2:
+        return True  # Single candle or empty batch is trivially valid
+
+    # Sort by timestamp to ensure chronological order
+    sorted_klines = sorted(new_klines, key=lambda k: int(k[0]))
+
+    CONTINUITY_TOLERANCE = 0.01  # Allow 1 cent difference for BTC
+
+    violations_found = False
+
+    for i in range(len(sorted_klines) - 1):
+        try:
+            close_price = float(sorted_klines[i][4])  # Close is index 4
+            next_open_price = float(sorted_klines[i + 1][1])  # Open is index 1
+
+            if abs(close_price - next_open_price) > CONTINUITY_TOLERANCE:
+                logger.warning(
+                    "Candle continuity violation: symbol=%s interval=%s close_price=%s next_open_price=%s "
+                    "timestamp=%s next_timestamp=%s diff=%s tolerance=%s",
+                    symbol,
+                    interval,
+                    close_price,
+                    next_open_price,
+                    sorted_klines[i][0],
+                    sorted_klines[i + 1][0],
+                    abs(close_price - next_open_price),
+                    CONTINUITY_TOLERANCE
+                )
+                violations_found = True
+
+        except (IndexError, TypeError, ValueError) as e:
+            logger.warning(
+                "Failed to parse prices for continuity check: symbol=%s interval=%s index=%s error=%s",
+                symbol, interval, i, e
+            )
+            violations_found = True  # Treat parse errors as violations
+
+    return not violations_found
+
+
+def analyze_timestamps(timestamps, symbol, interval, user_id):
+    """
+    Analyze timestamps for duplicates and patterns.
+
+    Args:
+        timestamps: List of timestamp integers from Redis
+
+    Returns:
+        dict: Analysis containing duplicate statistics and patterns
+    """
+    if not timestamps:
+        return {
+            'total': 0,
+            'unique': 0,
+            'duplicates': [],
+            'patterns': [],
+            'hasDuplicates': False,
+            'duplicateCount': 0
+        }
+
+    analysis = {
+        'total': len(timestamps),
+        'unique': len(set(timestamps)),
+        'duplicates': [],
+        'patterns': [],
+        'hasDuplicates': False,
+        'duplicateCount': 0
+    }
+
+    # Find duplicates
+    seen = {}
+    for ts in timestamps:
+        if ts in seen:
+            seen[ts] += 1
+            if seen[ts] == 2:  # First duplicate
+                analysis['hasDuplicates'] = True
+                analysis['duplicates'].append(ts)
+        else:
+            seen[ts] = 1
+
+    # Count total duplicates (not just unique values)
+    analysis['duplicateCount'] = sum(count - 1 for count in seen.values() if count > 1)
+
+    # Find consecutive duplicate patterns
+    if len(timestamps) > 1:
+        current_streak = None
+        current_count = 0
+
+        for i, ts in enumerate(timestamps):
+            if ts == current_streak:
+                current_count += 1
+            else:
+                # Finish previous streak
+                if current_streak is not None and current_count > 1:
+                    analysis['patterns'].append({
+                        'timestamp': current_streak,
+                        'consecutiveCount': current_count,
+                        'date': datetime.fromtimestamp(ts / 1000, tz=timezone.utc).isoformat()
+                    })
+                # Start new streak
+                current_streak = ts
+                current_count = 1
+
+        # Check last streak
+        if current_streak is not None and current_count > 1:
+            analysis['patterns'].append({
+                'timestamp': current_streak,
+                'consecutiveCount': current_count,
+                'date': datetime.fromtimestamp(current_streak / 1000, tz=timezone.utc).isoformat()
+            })
+
+    # Sort duplicates by frequency
+    analysis['duplicates'].sort(key=lambda ts: seen[ts], reverse=True)
+
+    # Add human readable dates to patterns for easier debugging
+    for pattern in analysis['patterns']:
+        pattern['date'] = datetime.fromtimestamp(pattern['timestamp'] / 1000, tz=timezone.utc).isoformat()
+
+    return analysis
 
 
 @app.route('/settings', methods=['GET', 'POST'])
@@ -1622,6 +1528,15 @@ def volume_profile():
     end_time = int(end_time_str) if end_time_str else None
     limit = int(limit)
 
+    # Validate provided time range
+    if start_time is not None and end_time is not None:
+        if not (start_time > 0 and end_time > start_time and (end_time - start_time) >= 3600000):
+            app.logger.warning(
+                f"Invalid time range provided in request: start_time={start_time}, end_time={end_time}, diff={end_time - start_time}. Falling back to defaults."
+            )
+            start_time = None
+            end_time = None
+
     user_id = get_current_user_id()
     if not user_id:
         return jsonify({"error": "Unauthorized"}), 401
@@ -1750,8 +1665,24 @@ def data():
                     st = _parse_ts(rng[0])
                     et = _parse_ts(rng[1])
                     if st is not None and et is not None:
-                        start_time = st
-                        end_time = et
+                        # Validate the range: must be positive timestamps, st < et, and span at least 1 hour
+                        if st > 0 and et > st and (et - st) >= 3600000:
+                            start_time = st
+                            end_time = et
+                        else:
+                            app.logger.warning(
+                                f"Invalid view_range for user {user_id}: st={st}, et={et}, diff={et-st if et and st else 'N/A'}. Falling back to defaults."
+                            )
+                            start_time = None
+                            end_time = None
+            else:
+                # No persisted view range, set defaults for new user
+                symbol = 'btcusdt'
+                interval = '1h'
+                now_ms = int(time.time() * 1000)
+                ten_days_ms = 10 * 24 * 60 * 60 * 1000
+                start_time = now_ms - ten_days_ms
+                end_time = now_ms
         except Exception as exc:
             app.logger.warning(
                 "Failed to apply view_range fallback in /data for user=%s: %s",
@@ -1771,6 +1702,9 @@ def data():
         user_id,
     )
 
+    # Add detailed logging for data requests to troubleshoot issues
+    # Logging moved after is_latest_mode is defined
+
 
     try:
         # --- Step 4: Use ZSET as the source of truth ---
@@ -1783,6 +1717,18 @@ def data():
         window_start = None
         window_end = None
         is_latest_mode = False
+
+        app.logger.info(
+            "[DATA_DEBUG] /data request: symbol=%s, interval=%s, start_time=%s, end_time=%s, "
+            "limit=%s, user=%s, is_latest_mode=%s",
+            symbol,
+            interval,
+            start_time,
+            end_time,
+            limit,
+            user_id,
+            is_latest_mode,
+        )
 
         if start_time is not None or end_time is not None:
             # Time-bounded modes
@@ -2050,6 +1996,45 @@ def data():
                     f"Discrepancy: Requested limit {limit}, "
                     f"returned {returned_count}"
                 )
+
+            # Analyze timestamps for duplicates before sending to client
+            duplicate_analysis = analyze_timestamps(times, symbol, interval, user_id)
+            if duplicate_analysis['hasDuplicates']:
+                app.logger.warning(
+                    "Duplicates detected in /data response: total=%d, unique=%d, duplicates=%d",
+                    duplicate_analysis['total'], duplicate_analysis['unique'], duplicate_analysis['duplicateCount']
+                )
+                app.logger.warning("Duplicate timestamps: %s", duplicate_analysis['duplicates'][:10])  # Log first 10
+                if duplicate_analysis['patterns']:
+                    app.logger.warning("Consecutive duplicate patterns: %s", duplicate_analysis['patterns'])
+
+            # Check candle continuity: close[i] should be approximately equal to open[i+1]
+            # Allow small tolerance to account for normal market microstructure (avoid flagging normal price movement)
+            continuity_violations = []
+            CONTINUITY_TOLERANCE = 0.1  # Allow 10 cents difference for BTC to avoid flagging normal market behavior
+
+            for i in range(len(closes) - 1):
+                try:
+                    close_price = closes[i]
+                    next_open_price = opens[i + 1]
+                    # Only flag significant differences that might indicate data corruption
+                    if abs(close_price - next_open_price) > CONTINUITY_TOLERANCE:
+                        continuity_violations.append((times[i], close_price, times[i+1], next_open_price))
+                except (IndexError, TypeError, ValueError):
+                    continue
+            if continuity_violations:
+                app.logger.warning(
+                    "Significant candle continuity violations in /data response (potential data corruption): symbol=%s interval=%s count=%d, tolerance=%s",
+                    symbol, interval, len(continuity_violations), CONTINUITY_TOLERANCE
+                )
+                app.logger.warning("First few continuity violations: %s", continuity_violations[:10])
+            else:
+                # Log at debug level when there are no significant violations (verification successful)
+                if continuity_violations == [] and len(closes) > 1:
+                    app.logger.debug(
+                        "Candle continuity verified: symbol=%s interval=%s, candles=%d, max_diff_within_tolerance=%s",
+                        symbol, interval, len(closes), CONTINUITY_TOLERANCE
+                    )
         else:
             print("No data returned from ZSET")
 
@@ -2114,6 +2099,20 @@ def data():
             user_id,
             redis_total,
             redis_read,
+        )
+
+        # Add detailed logging for data responses to troubleshoot issues
+        app.logger.info(
+            "[DATA_DEBUG] /data response: symbol=%s, returned_count=%d, "
+            "time_range=[%s to %s], first_close=%s, last_close=%s, "
+            "rect_volume_profiles_count=%d",
+            symbol,
+            len(times),
+            times[0] if times else 'none',
+            times[-1] if times else 'none',
+            closes[0] if closes else 'none',
+            closes[-1] if closes else 'none',
+            len(rect_volume_profiles),
         )
 
         return jsonify(
@@ -2689,7 +2688,7 @@ def transcribe_audio():
                 parsed_indicators = []
 
             # Get AI analysis using existing AI endpoint logic
-            ai_response = get_simple_trend_analysis_for_audio(transcribed_text, symbol, resolution, local_ollama_model_name="openai/gpt-oss-20b", user_id=get_current_user_id())
+            ai_response = get_answer_from_LLM_from_audio(transcribed_text, symbol, resolution, local_ollama_model_name="openai/gpt-oss-20b", user_id=get_current_user_id())
 
             return jsonify({
                 "status": "success",
@@ -2711,7 +2710,7 @@ def transcribe_audio():
         return jsonify({"error": f"Audio transcription failed: {str(e)}"}), 500
 
 
-def get_simple_trend_analysis_for_audio(question, symbol, resolution, local_ollama_model_name, user_id):
+def get_answer_from_LLM_from_audio(question, symbol, resolution, local_ollama_model_name, user_id):
     """Simple AI analysis for audio transcription based on existing AI logic"""
     try:
         app.logger.info("get_simple_response_from_llm for_audio called with question length: %d", len(question))
