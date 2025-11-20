@@ -9,3 +9,4 @@ pandas-ta
 openai-whisper
 pydub
 httpx
+websocket-client

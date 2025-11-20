@@ -17,7 +17,7 @@ from config import SUPPORTED_RESOLUTIONS, SUPPORTED_SYMBOLS, TRADING_SYMBOL, MAI
 from flask_socketio import SocketIO, emit, join_room
 from typing import Optional, Dict, Any, Tuple, List
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from background_fetcher import fetch_gap_from_binance
+from background_fetcher import fetch_gap_from_binance, start_live_price_stream, get_live_price
 import pandas as pd
 import pandas_ta as ta
 
@@ -833,6 +833,21 @@ def handle_cancel_load(data):
         app.logger.info(f"Canceled load {load_id} for user {user_id}")
 
 
+@socketio.on('get_live_price')
+def handle_get_live_price(data):
+    """Handle request for current live price of a symbol"""
+    symbol = (data or {}).get('symbol', '')
+    if not symbol:
+        emit('live_price', {'error': 'Symbol required'})
+        return
+    
+    price_data = get_live_price(symbol, r)
+    if price_data:
+        emit('live_price', price_data)
+    else:
+        emit('live_price', {'error': f'No live price available for {symbol}'})
+
+
 def log_route(func):
     @wraps(func)
     def wrapper(*args, **kwargs):
@@ -1007,7 +1022,19 @@ def view_range():
         if data:
             return jsonify(json.loads(data))
         else:
-            return jsonify({})
+            # Return a default range (last 10 days) for new users
+            from datetime import timedelta
+            now = datetime.now(timezone.utc)
+            ten_days_ago = now - timedelta(days=10)
+            default_range = {
+                'xaxis': {
+                    'range': [ten_days_ago.isoformat(), now.isoformat()]
+                },
+                'yaxis': {
+                    'range': None
+                }
+            }
+            return jsonify(default_range)
 
 
 @app.route('/drawings', methods=['GET', 'POST'])
@@ -2830,5 +2857,20 @@ if __name__ == "__main__":
         app.whisper_model = None
 
     start_background_fetch()
+    
+    # Start live price stream from Binance
+    def on_live_price(symbol: str, price: float, timestamp: int):
+        """Callback to broadcast live prices to all connected clients"""
+        try:
+            socketio.server.emit('live_price', {
+                'symbol': symbol,
+                'price': price,
+                'timestamp': timestamp
+            }, namespace='/')
+        except Exception as e:
+            app.logger.error(f"Error emitting live price: {e}")
+    
+    start_live_price_stream(SUPPORTED_SYMBOLS, r, app.logger, on_live_price)
+    
     # Use SocketIO's server so WebSocket events (progress, live, etc.) work.
     socketio.run(app, host='0.0.0.0', debug=True)

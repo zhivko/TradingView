@@ -2,9 +2,158 @@ import logging
 from typing import Callable, Optional, List, Tuple
 import requests
 import redis
+import websocket
+import json
+import threading
+import time
 
 
 def validate_kline_continuity(klines: List[list], symbol: str, interval: str, logger: logging.Logger) -> bool:
+    """
+    Validate candle continuity in fetched klines before storing.
+
+    Returns True if all continuity checks pass, False if violations found.
+    Logs warnings for any continuity violations detected.
+    """
+    if len(klines) < 2:
+        return True  # Can't check continuity with fewer than 2 klines
+
+    violations = []
+
+    for i in range(len(klines) - 1):
+        current = klines[i]
+        next_k = klines[i + 1]
+
+        close_price = float(current[4])  # close
+        open_price = float(next_k[1])   # open
+
+        # Allow small tolerance to account for normal market microstructure
+        CONTINUITY_TOLERANCE = 0.1  # 10 cents for crypto assets
+
+        if abs(close_price - open_price) > CONTINUITY_TOLERANCE:
+            violations.append({
+                'index': i,
+                'timestamp1': int(current[0]),
+                'close': close_price,
+                'timestamp2': int(next_k[0]),
+                'open': open_price,
+                'difference': abs(close_price - open_price)
+            })
+
+    if violations:
+        logger.warning(
+            "Continuity violations in fetched klines (potential data corruption): symbol=%s interval=%s violations=%d",
+            symbol, interval, len(violations)
+        )
+        for v in violations[:5]:  # Log first 5 violations
+            logger.warning(
+                "Continuity violation: T1=%s close=%.2f, T2=%s open=%.2f, diff=%.2f",
+                v['timestamp1'], v['close'], v['timestamp2'], v['open'], v['difference']
+            )
+        if len(violations) > 5:
+            logger.warning("... and %d more continuity violations", len(violations) - 5)
+        return False
+
+    return True
+
+
+def start_live_price_stream(
+    symbols: List[str],
+    redis_client: redis.Redis,
+    app_logger: logging.Logger,
+    price_callback: Optional[Callable[[str, float, int], None]] = None,
+) -> None:
+    """
+    Connect to Binance WebSocket and stream live prices for all symbols.
+    
+    Persists prices to Redis and calls price_callback if provided.
+    
+    Parameters:
+        symbols: List of trading symbols (e.g., ['BTCUSDT', 'ETHUSDT'])
+        redis_client: Redis connection instance
+        app_logger: Logger instance
+        price_callback: Optional callback function(symbol, price, timestamp) called on each price update
+    """
+    if not symbols:
+        app_logger.warning("No symbols provided for live price stream")
+        return
+    
+    # Convert symbols to lowercase for WebSocket subscription
+    streams = [f"{symbol.lower()}@ticker" for symbol in symbols]
+    
+    def on_message(ws, message):
+        try:
+            data = json.loads(message)
+            symbol = data.get('s')  # Symbol from Binance (uppercase)
+            price = float(data.get('c', 0))  # Last price
+            timestamp = int(data.get('E', int(time.time() * 1000)))  # Event time in ms
+            
+            if symbol and price > 0:
+                # Persist to Redis with key: live_price:{symbol}
+                redis_key = f"live_price:{symbol}"
+                redis_client.set(
+                    redis_key,
+                    json.dumps({
+                        'symbol': symbol,
+                        'price': price,
+                        'timestamp': timestamp
+                    })
+                )
+                
+                # Call callback if provided
+                if price_callback:
+                    price_callback(symbol, price, timestamp)
+        except Exception as e:
+            app_logger.exception("Error processing live price message: %s", e)
+    
+    def on_error(ws, error):
+        app_logger.error("WebSocket error: %s", error)
+    
+    def on_close(ws, close_status_code, close_msg):
+        app_logger.warning("WebSocket closed: status=%s msg=%s", close_status_code, close_msg)
+        # Attempt to reconnect after a delay
+        time.sleep(5)
+        start_live_price_stream(symbols, redis_client, app_logger, price_callback)
+    
+    def on_open(ws):
+        app_logger.info("WebSocket connected, subscribing to symbols: %s", symbols)
+    
+    # Build WebSocket URL with all streams
+    stream_param = "/".join(streams)
+    url = f"wss://stream.binance.com:9443/ws/{stream_param}"
+    
+    try:
+        ws = websocket.WebSocketApp(
+            url,
+            on_message=on_message,
+            on_error=on_error,
+            on_close=on_close,
+            on_open=on_open
+        )
+        
+        # Run WebSocket in a daemon thread
+        ws_thread = threading.Thread(target=ws.run_forever, daemon=True)
+        ws_thread.start()
+        app_logger.info("Live price stream started for symbols: %s", symbols)
+    except Exception as e:
+        app_logger.exception("Failed to start live price stream: %s", e)
+
+
+def get_live_price(symbol: str, redis_client: redis.Redis) -> Optional[dict]:
+    """
+    Retrieve the latest live price for a symbol from Redis.
+    
+    Returns:
+        Dict with 'symbol', 'price', 'timestamp' or None if not available
+    """
+    redis_key = f"live_price:{symbol}"
+    try:
+        data = redis_client.get(redis_key)
+        if data:
+            return json.loads(data)
+    except Exception:
+        pass
+    return None
     """
     Validate candle continuity in fetched klines before storing.
 

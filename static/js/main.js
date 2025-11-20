@@ -89,6 +89,10 @@ document.addEventListener('DOMContentLoaded', () => {
   let aiChunks = {};
   let finalChunks = {};
   let aiComplete = false;
+  let currentLivePrice = null;
+  
+  // Track last user shapes state to avoid re-saving on live price updates
+  let lastUserShapesHash = null;
 
   function setProgress(percent, message) {
     if (!progressContainer || !progressBarFill || !progressPercent) {
@@ -261,6 +265,37 @@ document.addEventListener('DOMContentLoaded', () => {
     socket.on('ai_error', (data) => {
       aiSuggestionTextarea.value = `Error: ${data.error}`;
       aiSuggestionTextarea.scrollTop = aiSuggestionTextarea.scrollHeight;
+    });
+
+    socket.on('live_price', (data) => {
+      // Ignore errors or data without price
+      if (data.error || !data.price) {
+        return;
+      }
+      
+      const symbol = data.symbol;
+      const price = data.price;
+      const timestamp = data.timestamp;
+      
+      // Only update if this is for the currently displayed symbol
+      if (symbol === currentSymbol) {
+        console.log(`[live_price] Received ${symbol}: ${price} at ${new Date(timestamp).toISOString()}`);
+        
+        currentLivePrice = {
+          symbol: symbol,
+          price: price,
+          timestamp: timestamp
+        };
+        
+        // Update the live price line on the chart
+        updateLivePriceLine(price);
+        
+        // Update live price display in right panel
+        const livePriceDisplay = document.getElementById('live-price-display');
+        if (livePriceDisplay) {
+          livePriceDisplay.textContent = `$${price.toFixed(2)}`;
+        }
+      }
     });
   }
 
@@ -456,6 +491,27 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
+  // Modal guest button
+  const modalGuestBtn = document.getElementById('modal-guest-btn');
+  if (modalGuestBtn) {
+    modalGuestBtn.addEventListener('click', async () => {
+      try {
+        const resp = await fetch('/guest-login', { method: 'POST' });
+        if (resp.ok) {
+          emailModal.style.display = 'none';
+          currentUser = await fetchCurrentUser();
+          updateUserEmailDisplay(currentUser);
+          initSocket();
+          await loadData();
+        } else {
+          alert('Failed to start guest session');
+        }
+      } catch (err) {
+        alert('Error: ' + err.message);
+      }
+    });
+  }
+
   // Check login and load initial chart using server-side session (/me)
   (async () => {
     try {
@@ -562,6 +618,112 @@ document.addEventListener('DOMContentLoaded', () => {
     Plotly.relayout('chart', {
       dragmode: 'pan'
     });
+  });
+
+  document.getElementById('zoom-in-btn').addEventListener('click', () => {
+    const chartEl = document.getElementById('chart');
+    if (!chartEl || !chartEl.layout) {
+      console.error('[DEBUG zoom-in-btn] Chart element or layout not found');
+      return;
+    }
+
+    try {
+      // Get current range
+      const currentXRange = chartEl.layout.xaxis?.range;
+      const currentYRange = chartEl.layout.yaxis?.range;
+
+      if (!currentXRange || !currentYRange || currentXRange.length !== 2 || currentYRange.length !== 2) {
+        console.error('[DEBUG zoom-in-btn] Current range not available');
+        return;
+      }
+
+      // Calculate center point
+      const xStart = new Date(currentXRange[0]).getTime();
+      const xEnd = new Date(currentXRange[1]).getTime();
+      const xCenter = (xStart + xEnd) / 2;
+      const xSpan = (xEnd - xStart) / 2;
+      const newXSpan = xSpan / 2; // Zoom in by 50%
+
+      const yStart = currentYRange[0];
+      const yEnd = currentYRange[1];
+      const yCenter = (yStart + yEnd) / 2;
+      const ySpan = (yEnd - yStart) / 2;
+      const newYSpan = ySpan / 2; // Zoom in by 50%
+
+      // Calculate new ranges
+      const newXStart = new Date(xCenter - newXSpan).toISOString();
+      const newXEnd = new Date(xCenter + newXSpan).toISOString();
+      const newYStart = yCenter - newYSpan;
+      const newYEnd = yCenter + newYSpan;
+
+      console.log('[DEBUG zoom-in-btn] Zooming in:', {
+        oldXRange: currentXRange,
+        newXRange: [newXStart, newXEnd],
+        oldYRange: currentYRange,
+        newYRange: [newYStart, newYEnd]
+      });
+
+      // Apply new range
+      Plotly.relayout(chartEl, {
+        'xaxis.range': [newXStart, newXEnd],
+        'yaxis.range': [newYStart, newYEnd]
+      });
+    } catch (err) {
+      console.error('[DEBUG zoom-in-btn] Error during zoom in:', err);
+    }
+  });
+
+  document.getElementById('zoom-out-btn').addEventListener('click', () => {
+    const chartEl = document.getElementById('chart');
+    if (!chartEl || !chartEl.layout) {
+      console.error('[DEBUG zoom-out-btn] Chart element or layout not found');
+      return;
+    }
+
+    try {
+      // Get current range
+      const currentXRange = chartEl.layout.xaxis?.range;
+      const currentYRange = chartEl.layout.yaxis?.range;
+
+      if (!currentXRange || !currentYRange || currentXRange.length !== 2 || currentYRange.length !== 2) {
+        console.error('[DEBUG zoom-out-btn] Current range not available');
+        return;
+      }
+
+      // Calculate center point
+      const xStart = new Date(currentXRange[0]).getTime();
+      const xEnd = new Date(currentXRange[1]).getTime();
+      const xCenter = (xStart + xEnd) / 2;
+      const xSpan = (xEnd - xStart) / 2;
+      const newXSpan = xSpan * 2; // Zoom out by 100%
+
+      const yStart = currentYRange[0];
+      const yEnd = currentYRange[1];
+      const yCenter = (yStart + yEnd) / 2;
+      const ySpan = (yEnd - yStart) / 2;
+      const newYSpan = ySpan * 2; // Zoom out by 100%
+
+      // Calculate new ranges
+      const newXStart = new Date(xCenter - newXSpan).toISOString();
+      const newXEnd = new Date(xCenter + newXSpan).toISOString();
+      const newYStart = yCenter - newYSpan;
+      const newYEnd = yCenter + newYSpan;
+
+      console.log('[DEBUG zoom-out-btn] Zooming out:', {
+        oldXRange: currentXRange,
+        newXRange: [newXStart, newXEnd],
+        oldYRange: currentYRange,
+        newYRange: [newYStart, newYEnd]
+      });
+
+      // Apply new range
+      Plotly.relayout(chartEl, {
+        'xaxis.range': [newXStart, newXEnd],
+        'yaxis.range': [newYStart, newYEnd]
+      });
+    } catch (err) {
+      console.error('[DEBUG zoom-out-btn] Error during zoom out:', err);
+    }
   });
 
   document.getElementById('draw-rect-btn').addEventListener('click', () => {
@@ -776,7 +938,19 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
       const shapes = chartEl._fullLayout.shapes || [];
-      const customShapes = shapes.filter(shape => shape.type === 'line' || shape.type === 'rect' || shape.type === 'rectangle');
+      const customShapes = shapes.filter(shape => {
+        // Exclude live price line (marked with isLivePrice flag)
+        if (shape.isLivePrice === true) {
+          return false;
+        }
+        // Also exclude by pattern: x0=0, x1=1, red dashed line
+        if (shape.type === 'line' && shape.x0 === 0 && shape.x1 === 1 && 
+            shape.line?.color === '#FF6B6B' && shape.line?.dash === 'dash') {
+          return false;
+        }
+        // Include all other lines and rectangles
+        return (shape.type === 'line' || shape.type === 'rect' || shape.type === 'rectangle');
+      });
 
       // Streamline shapes to only essential properties
       const streamlinedShapes = customShapes.map(shape => {
@@ -1927,14 +2101,20 @@ Volume: ${lvl.totalVolume}`,
     
     // Build layout with proper range handling
     const layout = {
-      title: `${currentSymbol} Price`,
       dragmode: 'pan',
       xaxis: xaxisConfig,
       yaxis: yaxisConfig,
       shapes: shapes || [],
       edits: {
         shapePosition: true
-      }
+      },
+      margin: {
+        l: 40,
+        r: 40,
+        t: 10,
+        b: 40
+      },
+      showlegend: false
     };
 
     // Debug logging for X-axis range being set in plotChart
@@ -1962,14 +2142,11 @@ Volume: ${lvl.totalVolume}`,
     }
     const config = {
       responsive: true,
-      displayModeBar: true,
+      displayModeBar: false,
       scrollZoom: true,
       editable: true,
       paper_bgcolor: 'transparent',
-      plot_bgcolor: 'transparent',
-      displaylogo: false,
-      modeBarButtonsToRemove: ['zoom2d', 'zoomIn2d', 'zoomOut2d', 'autoScale2d', 'resetScale2d', 'pan2d', 'select2d', 'lasso2d', 'zoom', 'toImage', 'sendDataToCloud'],
-      modeBarButtonsToAdd: ['drawline', 'drawopenpath', 'drawclosedpath', 'drawrect', 'eraseshape']
+      plot_bgcolor: 'transparent'
     };
 
     // Combine main price trace with any rectangle volume profile traces
@@ -1996,6 +2173,24 @@ Volume: ${lvl.totalVolume}`,
     Plotly.newPlot('chart', traces, layout, config).then(() => {
       const chartEl = document.getElementById('chart');
       ensureShapeEmailPropertyDefaults(chartEl);
+      
+      // Initialize hash of user shapes to detect actual changes (not live price updates)
+      if (chartEl && chartEl._fullLayout && Array.isArray(chartEl._fullLayout.shapes)) {
+        const userShapes = chartEl._fullLayout.shapes.filter(s => {
+          // Exclude live price line by flag
+          if (s.isLivePrice === true) {
+            return false;
+          }
+          // Also exclude by pattern: x0=0, x1=1, #FF6B6B, dash style
+          if (s.type === 'line' && s.x0 === 0 && s.x1 === 1 && 
+              s.line?.color === '#FF6B6B' && s.line?.dash === 'dash') {
+            return false;
+          }
+          return true;
+        });
+        lastUserShapesHash = JSON.stringify(userShapes);
+      }
+      
       console.log('Chart plotted, adding relayout listener');
       // Add relayout listener
       document.getElementById('chart').on('plotly_relayout', async (eventdata) => {
@@ -2023,6 +2218,7 @@ Volume: ${lvl.totalVolume}`,
         }
 
         // Detect shape changes (draw/add/move/delete) and save drawings
+        // BUT: ignore changes that only affect the live price line (isLivePrice flag)
         const shapeChangeKeys = eventdata
           ? Object.keys(eventdata).filter(key =>
               key === 'shapes' ||
@@ -2030,8 +2226,37 @@ Volume: ${lvl.totalVolume}`,
               key.startsWith('shape.')
             )
           : [];
-        const hasShapeChange = shapeChangeKeys.length > 0;
-        if (hasShapeChange) {
+        
+        let hasUserShapeChange = false;
+        if (shapeChangeKeys.length > 0) {
+          const chartEl = document.getElementById('chart');
+          if (chartEl && chartEl._fullLayout && Array.isArray(chartEl._fullLayout.shapes)) {
+            // Get only the user shapes (exclude live price line)
+            const userShapes = chartEl._fullLayout.shapes.filter(s => {
+              // Exclude if marked with isLivePrice flag
+              if (s.isLivePrice === true) {
+                return false;
+              }
+              // Also exclude by pattern: x0=0, x1=1, #FF6B6B, dash style
+              if (s.type === 'line' && s.x0 === 0 && s.x1 === 1 && 
+                  s.line?.color === '#FF6B6B' && s.line?.dash === 'dash') {
+                return false;
+              }
+              return true;
+            });
+            
+            // Create a hash of user shapes to detect actual changes
+            const userShapesJson = JSON.stringify(userShapes);
+            
+            // Only consider it a user shape change if the user shapes have actually changed
+            if (userShapesJson !== lastUserShapesHash) {
+              hasUserShapeChange = true;
+              lastUserShapesHash = userShapesJson;
+            }
+          }
+        }
+
+        if (hasUserShapeChange) {
           let totalShapes;
           const chartEl = document.getElementById('chart');
           if (chartEl && chartEl._fullLayout && Array.isArray(chartEl._fullLayout.shapes)) {
@@ -2290,15 +2515,59 @@ Volume: ${lvl.totalVolume}`,
         Array.isArray(result.rect_volume_profiles) ? result.rect_volume_profiles : []
       );
 
-      // When the symbol changes, automatically re-apply Plotly autoscaling
-      // so both axes fit the newly loaded data without requiring a manual click.
+      // When the symbol changes, apply autoscale button functionality
+      // This calculates explicit ranges from the data instead of using autorange
       if (symbolChanged) {
         try {
-          console.log('[DEBUG loadData] Symbol changed, applying autoscale');
-          await Plotly.relayout('chart', {
-            'xaxis.autorange': true,
-            'yaxis.autorange': true
-          });
+          console.log('[DEBUG loadData] Symbol changed, applying autoscale button functionality');
+          const chartEl = document.getElementById('chart');
+          if (!chartEl || !chartEl.data || !chartEl.data.length || !chartEl.data[0]) {
+            console.error('[DEBUG loadData] Chart data not available for autoscale calculation');
+          } else {
+            const traceData = chartEl.data[0];
+            if (!traceData.x || !traceData.x.length || !traceData.low || !traceData.high) {
+              console.error('[DEBUG loadData] Trace missing x or price data');
+            } else {
+              // Calculate X-axis range (time) from data
+              const xValues = traceData.x.map(x => new Date(x).getTime()).filter(t => Number.isFinite(t));
+              const xMin = Math.min(...xValues);
+              const xMax = Math.max(...xValues);
+
+              if (!Number.isFinite(xMin) || !Number.isFinite(xMax) || xMin >= xMax) {
+                console.error('[DEBUG loadData] Invalid X range calculated:', { xMin, xMax });
+              } else {
+                // Calculate Y-axis range (price) from OHLC data with padding
+                const yValues = [...traceData.low, ...traceData.high].filter(y => Number.isFinite(y));
+                const yMinBase = Math.min(...yValues);
+                const yMaxBase = Math.max(...yValues);
+
+                if (!Number.isFinite(yMinBase) || !Number.isFinite(yMaxBase) || yMinBase >= yMaxBase) {
+                  console.error('[DEBUG loadData] Invalid Y range calculated:', { yMinBase, yMaxBase });
+                } else {
+                  // Add 5% padding to Y range for better visualization
+                  const yPadding = (yMaxBase - yMinBase) * 0.05;
+                  const yMin = Math.max(0, yMinBase - yPadding); // Don't go below 0 for prices
+                  const yMax = yMaxBase + yPadding;
+
+                  console.log('[DEBUG loadData] Calculated ranges after symbol change:', {
+                    xMin: new Date(xMin).toISOString(),
+                    xMax: new Date(xMax).toISOString(),
+                    yMin,
+                    yMax,
+                    yPadding
+                  });
+
+                  // Set explicit ranges calculated from data (not autorange)
+                  await Plotly.relayout(chartEl, {
+                    'xaxis.range': [new Date(xMin).toISOString(), new Date(xMax).toISOString()],
+                    'yaxis.range': [yMin, yMax]
+                  });
+
+                  console.log('[DEBUG loadData] Autoscale applied successfully after symbol change');
+                }
+              }
+            }
+          }
         } catch (err) {
           console.error('Error applying autoscale after symbol change:', err);
         }
@@ -2319,6 +2588,67 @@ Volume: ${lvl.totalVolume}`,
       Plotly.Plots.resize('chart');
     }
   });
+
+  function updateLivePriceLine(price) {
+    const chartEl = document.getElementById('chart');
+    if (!chartEl || !chartEl.layout) {
+      return;
+    }
+
+    // Remove existing live price annotations and shapes
+    let shapes = (chartEl.layout.shapes || []).filter(s => !s.isLivePrice);
+    let annotations = (chartEl.layout.annotations || []).filter(a => !a.isLivePrice);
+
+    if (price > 0) {
+      // Add horizontal line at current price
+      shapes.push({
+        type: 'line',
+        x0: 0,
+        x1: 1,
+        y0: price,
+        y1: price,
+        xref: 'paper',
+        yref: 'y',
+        line: {
+          color: '#FF6B6B',
+          width: 2,
+          dash: 'dash'
+        },
+        isLivePrice: true
+      });
+
+      // Add text annotation with price in a box
+      annotations.push({
+        x: 0.02,
+        y: price,
+        xref: 'paper',
+        yref: 'y',
+        text: `Live: $${price.toFixed(2)}`,
+        showarrow: false,
+        bgcolor: '#FF6B6B',
+        bordercolor: '#CC0000',
+        borderwidth: 2,
+        borderpad: 8,
+        font: {
+          color: 'white',
+          size: 12,
+          family: 'Arial, sans-serif'
+        },
+        align: 'left',
+        xanchor: 'left',
+        yanchor: 'middle',
+        isLivePrice: true
+      });
+    }
+
+    // Update layout with new shapes and annotations
+    Plotly.relayout(chartEl, {
+      shapes: shapes,
+      annotations: annotations
+    }).catch(err => {
+      console.error('[live_price] Error updating chart:', err);
+    });
+  }
 
   // Utility function to analyze timestamps for duplicates and patterns (backend mirror)
   function analyzeTimestamps(timestamps, symbol, interval) {
