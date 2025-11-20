@@ -8,4 +8,6 @@ __pycache__/
 .kilocode/
 .vscode/
 logs/
+logs/app.log
+*.log
 
