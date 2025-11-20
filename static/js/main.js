@@ -279,7 +279,7 @@ document.addEventListener('DOMContentLoaded', () => {
       
       // Only update if this is for the currently displayed symbol
       if (symbol === currentSymbol) {
-        console.log(`[live_price] Received ${symbol}: ${price} at ${new Date(timestamp).toISOString()}`);
+        //console.log(`[live_price] Received ${symbol}: ${price} at ${new Date(timestamp).toISOString()}`);
         
         currentLivePrice = {
           symbol: symbol,
@@ -742,6 +742,10 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       console.log('[DEBUG loadViewRange] Loading view range from server...');
       const resp = await fetch('/view-range');
+      if (!resp.ok) {
+        console.error('[DEBUG loadViewRange] Server returned error status:', resp.status, resp.statusText);
+        return {};
+      }
       const range = await resp.json();
       
       console.log('[DEBUG loadViewRange] Raw response from server:', range);
@@ -2071,14 +2075,15 @@ Volume: ${lvl.totalVolume}`,
     if (range.xaxis && Array.isArray(range.xaxis.range) && range.xaxis.range.length === 2) {
       // Convert range values to ISO strings
       xaxisConfig.range = range.xaxis.range.map(v => new Date(v).toISOString());
-      console.log('[DEBUG plotChart] Setting xaxis.range to ISO strings:', xaxisConfig.range);
+      xaxisConfig.autorange = false; // Explicitly disable autorange when setting explicit range
+      console.log('[RANGE_CHANGE] plotChart setting xaxis.range to ISO strings:', xaxisConfig.range);
     } else if (range.xaxis && range.xaxis.range === null) {
       xaxisConfig.autorange = true;
-      console.log('[DEBUG plotChart] Setting xaxis.autorange = true');
+      console.log('[RANGE_CHANGE] plotChart setting xaxis.autorange = true');
     } else {
       // Default to autorange if no range specified
       xaxisConfig.autorange = true;
-      console.log('[DEBUG plotChart] No range specified, defaulting to xaxis.autorange = true');
+      console.log('[RANGE_CHANGE] plotChart no range specified, defaulting to xaxis.autorange = true');
     }
     
     // Build yaxis configuration explicitly
@@ -2089,14 +2094,15 @@ Volume: ${lvl.totalVolume}`,
     // Set range or autorange for y-axis
     if (range.yaxis && Array.isArray(range.yaxis.range) && range.yaxis.range.length === 2) {
       yaxisConfig.range = range.yaxis.range;
-      console.log('[DEBUG plotChart] Setting yaxis.range to:', yaxisConfig.range);
+      yaxisConfig.autorange = false; // Explicitly disable autorange when setting explicit range
+      console.log('[RANGE_CHANGE] plotChart setting yaxis.range to:', yaxisConfig.range);
     } else if (range.yaxis && range.yaxis.range === null) {
       yaxisConfig.autorange = true;
-      console.log('[DEBUG plotChart] Setting yaxis.autorange = true');
+      console.log('[RANGE_CHANGE] plotChart setting yaxis.autorange = true');
     } else {
       // Default to autorange if no range specified
       yaxisConfig.autorange = true;
-      console.log('[DEBUG plotChart] No range specified, defaulting to yaxis.autorange = true');
+      console.log('[RANGE_CHANGE] plotChart no range specified, defaulting to yaxis.autorange = true');
     }
     
     // Build layout with proper range handling
@@ -2159,8 +2165,8 @@ Volume: ${lvl.totalVolume}`,
     }
 
     setProgress(75, 'Chart processing progress:');
-    console.log('Calling Plotly.newPlot');
-    console.log('[DEBUG Plotly.newPlot] About to call Plotly.newPlot with layout:', {
+    console.log('Calling Plotly.react');
+    console.log('[DEBUG Plotly.react] About to call Plotly.react with layout:', {
       layoutXAxis: layout.xaxis,
       layoutXAxisRange: layout.xaxis.range,
       layoutXAxisAutorange: layout.xaxis.autorange,
@@ -2168,9 +2174,10 @@ Volume: ${lvl.totalVolume}`,
       layoutYAxisAutorange: layout.yaxis.autorange,
       layoutXAxisRangeDates: Array.isArray(layout.xaxis.range) ? layout.xaxis.range.map(v => new Date(v).toISOString()) : 'null/undefined'
     });
-    console.log('[DEBUG Plotly.newPlot] First 3 x values:', traces[0].x.slice(0, 3));
-    console.log('[DEBUG Plotly.newPlot] Last 3 x values:', traces[0].x.slice(-3));
-    Plotly.newPlot('chart', traces, layout, config).then(() => {
+    console.log('[DEBUG Plotly.react] First 3 x values:', traces[0].x.slice(0, 3));
+    console.log('[DEBUG Plotly.react] Last 3 x values:', traces[0].x.slice(-3));
+
+    Plotly.react('chart', traces, layout, config).then(() => {
       const chartEl = document.getElementById('chart');
       ensureShapeEmailPropertyDefaults(chartEl);
       
@@ -2200,6 +2207,15 @@ Volume: ${lvl.totalVolume}`,
         let xRange = eventdata['xaxis.range'] || (eventdata['xaxis.range[0]'] ? [eventdata['xaxis.range[0]'], eventdata['xaxis.range[1]']] : null);
         let yRange = eventdata['yaxis.range'] || (eventdata['yaxis.range[0]'] ? [eventdata['yaxis.range[0]'], eventdata['yaxis.range[1]']] : null);
 
+        /*
+        console.log('[RANGE_CHANGE] Relayout triggered with ranges:', {
+          xRange: xRange,
+          yRange: yRange,
+          xRangeDates: Array.isArray(xRange) ? xRange.map(v => new Date(v).toISOString()) : xRange,
+          yRangeValues: yRange
+        });
+        */
+
         // Check if this is a user-initiated zoom/pan operation
         // User zoom/pan events have xaxis.range[0], xaxis.range[1], yaxis.range[0], yaxis.range[1] format
         const isUserZoomPan = eventdata &&
@@ -2211,10 +2227,7 @@ Volume: ${lvl.totalVolume}`,
           window.currentZoomPanRange = { xaxis: { range: xRange }, yaxis: { range: yRange } };
           console.log('User zoom/pan operation detected, fetching new data for zoomed range');
         } else {
-          // Clear the zoom/pan range flag for non-user-initiated range changes
-          if (window.currentZoomPanRange) {
-            delete window.currentZoomPanRange;
-          }
+
         }
 
         // Detect shape changes (draw/add/move/delete) and save drawings
@@ -2293,6 +2306,7 @@ Volume: ${lvl.totalVolume}`,
         }
 
         // DEBUG: Log extracted ranges with dates
+        /*
         console.log('[DEBUG relayout] Extracted ranges from eventdata:', {
           xRange: xRange,
           yRange: yRange,
@@ -2300,6 +2314,7 @@ Volume: ${lvl.totalVolume}`,
           yRangeDates: Array.isArray(yRange) ? yRange.map(v => new Date(v).toISOString()) : yRange,
           eventdataKeys: Object.keys(eventdata)
         });
+        */
 
         // When autoscale is triggered, Plotly emits *autorange* flags in eventdata
         // (e.g. "xaxis.autorange": true). For autoscale events, we should NOT
@@ -2371,10 +2386,34 @@ Volume: ${lvl.totalVolume}`,
                 if (resp.ok) {
                   console.log(`[debounce] Fetch completed for loadId: ${loadId}, data length: ${result.time ? result.time.length : 'undefined'}`);
                   console.log('Data fetched, replotting');
+
+                  // Preserve the current Y-range from the chart to prevent autoscaling
+                  const chartEl = document.getElementById('chart');
+                  const currentYRange = chartEl?.layout?.yaxis?.range;
+
+                  // Calculate X-range from the actual data to prevent Plotly from adjusting it
+                  const dataXValues = result.time.map(t => new Date(t).getTime()).filter(t => Number.isFinite(t));
+                  const dataXMin = Math.min(...dataXValues);
+                  const dataXMax = Math.max(...dataXValues);
+                  const dataXRange = Number.isFinite(dataXMin) && Number.isFinite(dataXMax) && dataXMin < dataXMax
+                    ? [new Date(dataXMin).toISOString(), new Date(dataXMax).toISOString()]
+                    : xRange;
+
+                  console.log('[RANGE_CHANGE] Replotting after data fetch:', {
+                    requestedXRange: xRange,
+                    dataXRange: dataXRange,
+                    yRange: yRange,
+                    currentYRange: currentYRange,
+                    willUseYRange: currentYRange && Array.isArray(currentYRange) && currentYRange.length === 2 ? currentYRange : yRange
+                  });
+
                   const drawings = await loadDrawings(currentSymbol);
                   await plotChart(
                     result,
-                    { xaxis: { range: xRange }, yaxis: { range: yRange } },
+                    {
+                      xaxis: { range: dataXRange },
+                      yaxis: { range: currentYRange && Array.isArray(currentYRange) && currentYRange.length === 2 ? currentYRange : yRange }
+                    },
                     drawings,
                     Array.isArray(result.rect_volume_profiles) ? result.rect_volume_profiles : []
                   );
@@ -2394,8 +2433,6 @@ Volume: ${lvl.totalVolume}`,
               console.log('Autoscale detected - not fetching new data, letting Plotly auto-scale to existing data');
             }
           }, 1000);
-        } else {
-          console.log('No range change in eventdata');
         }
       });
       // Enable selection of drawn shapes (rectangles/lines) by click
@@ -2508,9 +2545,14 @@ Volume: ${lvl.totalVolume}`,
 
       const drawings = await loadDrawings(symbol);
       console.log('Loaded drawings:', drawings);
+
+      // Don't apply saved ranges when loading data - let Plotly autorange initially
+      // Saved ranges should only be applied when user explicitly zooms/pans
+      const initialRange = { xaxis: { autorange: true }, yaxis: { autorange: true } };
+
       await plotChart(
         result,
-        range,
+        initialRange,
         drawings,
         Array.isArray(result.rect_volume_profiles) ? result.rect_volume_profiles : []
       );

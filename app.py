@@ -759,8 +759,10 @@ def fetch_klines_range(symbol, interval, start_time, end_time, klines=None, prog
                 'startTime': current_start,
                 'limit': 1000
             }
+            # Use futures endpoint for APEXUSDT, spot for others
+            base_url = "https://fapi.binance.com/fapi/v1/klines" if symbol == "APEXUSDT" else "https://api.binance.com/api/v3/klines"
             try:
-                resp = requests.get('https://api.binance.com/api/v3/klines', params=params)
+                resp = requests.get(base_url, params=params)
                 new_klines = resp.json()
                 if not new_klines:
                     break
@@ -824,8 +826,10 @@ def fetch_klines_range(symbol, interval, start_time, end_time, klines=None, prog
                 'startTime': current_start,
                 'limit': 1000
             }
+            # Use futures endpoint for APEXUSDT, spot for others
+            base_url = "https://fapi.binance.com/fapi/v1/klines" if symbol == "APEXUSDT" else "https://api.binance.com/api/v3/klines"
             try:
-                resp = requests.get('https://api.binance.com/api/v3/klines', params=params)
+                resp = requests.get(base_url, params=params)
                 new_klines = resp.json()
                 if not new_klines:
                     break

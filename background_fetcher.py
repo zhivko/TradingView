@@ -264,9 +264,11 @@ def fetch_gap_from_binance(
             "startTime": start_time,
             "limit": 1000,
         }
+        # Use futures endpoint for APEXUSDT, spot for others
+        base_url = "https://fapi.binance.com/fapi/v1/klines" if symbol == "APEXUSDT" else "https://api.binance.com/api/v3/klines"
         try:
             resp = requests.get(
-                "https://api.binance.com/api/v3/klines",
+                base_url,
                 params=params,
                 timeout=10,
             )
