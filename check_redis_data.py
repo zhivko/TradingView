@@ -89,13 +89,12 @@ def check_continuity_in_redis(klines_data):
 
 def main():
     SYMBOL = 'BTCUSDT'
-    INTERVAL = '15m'
+    INTERVAL = '1h'
 
-    # Check around the problematic timestamps
-    # First violation: 1763555400000
-    # Let's check a wider range around it
-    start_ts = 1763550000000  # ~30 minutes before
-    end_ts = 1763565000000    # ~30 minutes after
+    # Check around the duplicate timestamp
+    # Duplicate: 1763658000000
+    start_ts = 1763600000000  # ~1 hour before
+    end_ts = 1763700000000    # ~1 hour after
 
     print(f"Checking Redis data for {SYMBOL} {INTERVAL}")
     print(f"Time range: {datetime.fromtimestamp(start_ts/1000, tz=timezone.utc)} to {datetime.fromtimestamp(end_ts/1000, tz=timezone.utc)}")

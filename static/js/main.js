@@ -2194,7 +2194,7 @@ Volume: ${lvl.totalVolume}`,
       console.log('Chart plotted, adding relayout listener');
       // Add relayout listener
       document.getElementById('chart').on('plotly_relayout', async (eventdata) => {
-        console.log('plotly_relayout triggered:', eventdata);
+        //console.log('plotly_relayout triggered:', eventdata);
 
         // Extract range values first to avoid initialization issues
         let xRange = eventdata['xaxis.range'] || (eventdata['xaxis.range[0]'] ? [eventdata['xaxis.range[0]'], eventdata['xaxis.range[1]']] : null);

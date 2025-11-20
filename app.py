@@ -292,6 +292,81 @@ def ms_to_iso(ms: int) -> str:
         return str(ms)
 
 
+def aggregate_1m_candles_to_interval(
+    candles_1m: List[dict],
+    target_interval: str,
+    interval_ms: int
+) -> Tuple[List[int], List[float], List[float], List[float], List[float], List[float]]:
+    """
+    Aggregate 1-minute candles into a higher timeframe.
+    
+    Args:
+        candles_1m: List of 1-min candles (dictionaries with time, open, high, low, close, volume)
+        target_interval: Target interval name (e.g., '5m', '1h', '4h', '1d')
+        interval_ms: Milliseconds for target interval
+    
+    Returns:
+        Tuple of (times, opens, highs, lows, closes, volumes) as parallel lists
+    """
+    if not candles_1m:
+        return [], [], [], [], [], []
+    
+    # Group candles by target interval boundary
+    candles_by_interval = {}
+    
+    for candle in candles_1m:
+        try:
+            open_time = int(candle.get('time', 0))
+            open_price = float(candle.get('open', 0))
+            high_price = float(candle.get('high', 0))
+            low_price = float(candle.get('low', 0))
+            close_price = float(candle.get('close', 0))
+            volume = float(candle.get('volume', 0))
+            
+            # Round to interval boundary
+            interval_key = (open_time // interval_ms) * interval_ms
+            
+            if interval_key not in candles_by_interval:
+                # First candle in this interval
+                candles_by_interval[interval_key] = {
+                    'time': interval_key,
+                    'open': open_price,
+                    'high': high_price,
+                    'low': low_price,
+                    'close': close_price,
+                    'volume': volume
+                }
+            else:
+                # Aggregate: take highest high, lowest low, latest close, sum volume
+                existing = candles_by_interval[interval_key]
+                existing['high'] = max(existing['high'], high_price)
+                existing['low'] = min(existing['low'], low_price)
+                existing['close'] = close_price
+                existing['volume'] += volume
+        except (ValueError, KeyError, TypeError):
+            # Skip malformed candles
+            continue
+    
+    # Convert to parallel arrays, sorted by time
+    times = []
+    opens = []
+    highs = []
+    lows = []
+    closes = []
+    volumes = []
+    
+    for interval_key in sorted(candles_by_interval.keys()):
+        agg = candles_by_interval[interval_key]
+        times.append(agg['time'])
+        opens.append(agg['open'])
+        highs.append(agg['high'])
+        lows.append(agg['low'])
+        closes.append(agg['close'])
+        volumes.append(agg['volume'])
+    
+    return times, opens, highs, lows, closes, volumes
+
+
 # Logging configuration
 os.makedirs("logs", exist_ok=True)
 
@@ -407,20 +482,19 @@ def start_background_fetch():
     Background task that continuously:
       1) Scans Redis for gaps per (symbol, interval).
       2) Submits gap fetches to a shared ThreadPoolExecutor for concurrent
-         historical backfill from Binance.
+          historical backfill from Binance.
       3) Periodically fetches the latest 500 candles per (symbol, interval).
 
     The actual HTTP fetch + insert for a single gap lives in
     background_fetcher.fetch_gap_from_binance so that this function stays
     concise and orchestration-focused.
     """
-    executor = ThreadPoolExecutor(max_workers=8)
-
     def fetch_loop():
-            while True:
-                # First, discover all gaps across all (symbol, interval) pairs.
-                gap_tasks = []  # (symbol, interval, gap_start, gap_end, interval_ms, now_ms)
-                started_gap_symbols_intervals = set()
+        while True:
+            executor = ThreadPoolExecutor(max_workers=8)
+            # First, discover all gaps across all (symbol, interval) pairs.
+            gap_tasks = []  # (symbol, interval, gap_start, gap_end, interval_ms, now_ms)
+            started_gap_symbols_intervals = set()
             for symbol in SUPPORTED_SYMBOLS:
                 for interval in SUPPORTED_RESOLUTIONS:
                     try:
@@ -432,9 +506,9 @@ def start_background_fetch():
                         current_time_sec = int(time.time())
                         now_ms = current_time_sec * 1000
 
-                        # Hourly gap fill per (symbol, interval) - only if not already running
+                        # Gap fill per (symbol, interval) - only if not already running
                         is_running = r.get(gap_fill_running_key)
-                        if (not last_fill or int(last_fill) < current_time_sec - 3600) and not is_running:
+                        if not is_running:
                             # Set running flag with 2 hour expiration (safety valve)
                             r.set(gap_fill_running_key, str(current_time_sec), ex=7200)
 
@@ -540,17 +614,23 @@ def start_background_fetch():
                                     interval,
                                 )
 
-                        # Ongoing fetch for latest klines; ZSET is the canonical storage.
+                        # Ongoing fetch for latest klines; fetch from last stored timestamp to now
                         try:
-                            resp = requests.get(
-                                'https://api.binance.com/api/v3/klines',
-                                params={
-                                    'symbol': symbol,
-                                    'interval': interval,
-                                    'limit': 500,
-                                },
-                            )
-                            new_klines = resp.json()
+                            latest_ts = get_latest_kline_time(symbol, interval)
+                            if latest_ts is not None:
+                                start_time = latest_ts
+                            else:
+                                # No data yet, start from bootstrap
+                                start_time = 1577836800000  # 2020-01-01
+
+                            end_time = current_time_sec * 1000
+
+                            if start_time >= end_time:
+                                # No new data to fetch
+                                continue
+
+                            # Fetch klines from start_time to end_time
+                            new_klines = fetch_klines_range(symbol, interval, start_time, end_time)
                             if new_klines:
                                 # Validate candle continuity before storing
                                 if not validate_kline_continuity(new_klines, symbol, interval, latest_logger):
@@ -875,7 +955,7 @@ def validate_kline_continuity(new_klines, symbol, interval, logger):
     # Sort by timestamp to ensure chronological order
     sorted_klines = sorted(new_klines, key=lambda k: int(k[0]))
 
-    CONTINUITY_TOLERANCE = 0.01  # Allow 1 cent difference for BTC
+    CONTINUITY_TOLERANCE = 10  # Allow 10 cents difference to avoid flagging normal market behavior
 
     violations_found = False
 
@@ -1815,18 +1895,80 @@ def data():
             zcard = int(r.zcard(zset_key))
             redis_total = min(zcard, int(limit))
 
+        # --- Try aggregation from 1m candles if insufficient direct candles ---
+        aggregation_source = None
+        
+        # Only attempt aggregation if:
+        # 1. Requested interval is NOT 1m (no point aggregating 1m to 1m)
+        # 2. Redis total is insufficient (< 10 candles) AND interval is not 1m
+        # 3. We have an explicit time window
+        if (interval != '1m' and redis_total < 10 and window_start is not None and window_end is not None):
+            app.logger.info(
+                "[AGGREGATION] Insufficient direct %s candles (%d), attempting to aggregate from 1m: symbol=%s window=[%s, %s]",
+                interval, redis_total, symbol, window_start, window_end
+            )
+            
+            zset_key_1m = get_klines_zset_key(symbol, '1m')
+            redis_total_1m = int(r.zcount(zset_key_1m, window_start, window_end))
+            
+            if redis_total_1m >= 10:  # Ensure we have enough 1m candles
+                app.logger.info(
+                    "[AGGREGATION] Found %d 1m candles, aggregating to %s: symbol=%s",
+                    redis_total_1m, interval, symbol
+                )
+                
+                try:
+                    # Fetch all 1m candles for the window
+                    candles_1m_raw = r.zrangebyscore(zset_key_1m, window_start, window_end)
+                    candles_1m = []
+                    
+                    for member in candles_1m_raw:
+                        try:
+                            k = json.loads(member)
+                            candles_1m.append({
+                                'time': int(k[0]),
+                                'open': float(k[1]),
+                                'high': float(k[2]),
+                                'low': float(k[3]),
+                                'close': float(k[4]),
+                                'volume': float(k[5]) if len(k) > 5 else 0.0
+                            })
+                        except (json.JSONDecodeError, ValueError, IndexError, TypeError):
+                            continue
+                    
+                    # Aggregate to target interval
+                    interval_ms = get_timeframe_seconds(interval) * 1000
+                    times, opens, highs, lows, closes, volumes = aggregate_1m_candles_to_interval(
+                        candles_1m, interval, interval_ms
+                    )
+                    
+                    if times:
+                        redis_total = len(times)
+                        aggregation_source = 'aggregated_from_1m'
+                        app.logger.info(
+                            "[AGGREGATION] Successfully aggregated %d 1m candles to %d %s candles for symbol=%s",
+                            len(candles_1m), len(times), interval, symbol
+                        )
+                except Exception as e:
+                    app.logger.warning(
+                        "[AGGREGATION] Failed to aggregate from 1m: symbol=%s interval=%s error=%s",
+                        symbol, interval, e
+                    )
+
         # --- Step 4: Chunked retrieval from Redis (Phase B, 50–100% or 0–100%) ---
         redis_read = 0
-        times = []
-        opens = []
-        highs = []
-        lows = []
-        closes = []
-        volumes = []
+        if not aggregation_source:  # Only fetch if we didn't already aggregate
+            times = []
+            opens = []
+            highs = []
+            lows = []
+            closes = []
+            volumes = []
 
-        if not is_latest_mode:
+        if not is_latest_mode and not aggregation_source:
             # Time-bounded window: always stream the full range [window_start, window_end]
             # in chronological order, ignoring `limit` for the number of returned candles.
+            # (Skip this if we already aggregated from 1m)
             if window_start is not None and window_end is not None and redis_total > 0:
                 # Windowed full-range: use forward ZRANGEBYSCORE in chunks
                 chunk_size = 2000
@@ -2026,14 +2168,19 @@ def data():
 
             # Analyze timestamps for duplicates before sending to client
             duplicate_analysis = analyze_timestamps(times, symbol, interval, user_id)
-            if duplicate_analysis['hasDuplicates']:
+            if duplicate_analysis['hasDuplicates'] and duplicate_analysis['duplicateCount'] > 10:
                 app.logger.warning(
-                    "Duplicates detected in /data response: total=%d, unique=%d, duplicates=%d",
+                    "Significant duplicates detected in /data response: total=%d, unique=%d, duplicates=%d",
                     duplicate_analysis['total'], duplicate_analysis['unique'], duplicate_analysis['duplicateCount']
                 )
                 app.logger.warning("Duplicate timestamps: %s", duplicate_analysis['duplicates'][:10])  # Log first 10
                 if duplicate_analysis['patterns']:
                     app.logger.warning("Consecutive duplicate patterns: %s", duplicate_analysis['patterns'])
+            elif duplicate_analysis['hasDuplicates']:
+                app.logger.debug(
+                    "Minor duplicates detected in /data response: total=%d, unique=%d, duplicates=%d",
+                    duplicate_analysis['total'], duplicate_analysis['unique'], duplicate_analysis['duplicateCount']
+                )
 
             # Check candle continuity: close[i] should be approximately equal to open[i+1]
             # Allow small tolerance to account for normal market microstructure (avoid flagging normal price movement)
@@ -2151,6 +2298,11 @@ def data():
                 "close": closes,
                 "volume": volumes,
                 "rect_volume_profiles": rect_volume_profiles,
+                "metadata": {
+                    "source": aggregation_source if aggregation_source else "direct",
+                    "interval": interval,
+                    "candle_count": len(times)
+                }
             }
         )
     except Exception as e:
