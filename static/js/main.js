@@ -1841,6 +1841,17 @@ Volume: ${lvl.totalVolume}`,
       yaxisRangeIsNull: range.yaxis?.range === null,
       yaxisRangeIsUndefined: range.yaxis?.range === undefined
     });
+
+    // Check if we have a current user-set range from zoom/pan that should be preserved
+    let preserveCurrentRange = false;
+    if (typeof window !== 'undefined' && window.currentZoomPanRange) {
+      preserveCurrentRange = true;
+      console.log('[DEBUG plotChart] Preserving user zoom/pan range');
+      // Use the preserved range instead of the passed range
+      range = window.currentZoomPanRange;
+      // Clear the preserved range after using it
+      delete window.currentZoomPanRange;
+    }
     // Reset any in-memory shape selection whenever we fully (re)plot the chart
     selectedShapeIndex = null;
     hoveredShapeIndex = null;
@@ -1990,6 +2001,27 @@ Volume: ${lvl.totalVolume}`,
       document.getElementById('chart').on('plotly_relayout', async (eventdata) => {
         console.log('plotly_relayout triggered:', eventdata);
 
+        // Extract range values first to avoid initialization issues
+        let xRange = eventdata['xaxis.range'] || (eventdata['xaxis.range[0]'] ? [eventdata['xaxis.range[0]'], eventdata['xaxis.range[1]']] : null);
+        let yRange = eventdata['yaxis.range'] || (eventdata['yaxis.range[0]'] ? [eventdata['yaxis.range[0]'], eventdata['yaxis.range[1]']] : null);
+
+        // Check if this is a user-initiated zoom/pan operation
+        // User zoom/pan events have xaxis.range[0], xaxis.range[1], yaxis.range[0], yaxis.range[1] format
+        const isUserZoomPan = eventdata &&
+          (eventdata['xaxis.range[0]'] !== undefined || eventdata['yaxis.range[0]'] !== undefined ||
+           eventdata['xaxis.range[1]'] !== undefined || eventdata['yaxis.range[1]'] !== undefined);
+
+        if (isUserZoomPan) {
+          // Store the current zoom/pan range so plotChart knows to preserve it
+          window.currentZoomPanRange = { xaxis: { range: xRange }, yaxis: { range: yRange } };
+          console.log('User zoom/pan operation detected, fetching new data for zoomed range');
+        } else {
+          // Clear the zoom/pan range flag for non-user-initiated range changes
+          if (window.currentZoomPanRange) {
+            delete window.currentZoomPanRange;
+          }
+        }
+
         // Detect shape changes (draw/add/move/delete) and save drawings
         const shapeChangeKeys = eventdata
           ? Object.keys(eventdata).filter(key =>
@@ -2034,9 +2066,6 @@ Volume: ${lvl.totalVolume}`,
             console.error('Error refreshing rectangle volume profiles:', err);
           }
         }
-
-        let xRange = eventdata['xaxis.range'] || (eventdata['xaxis.range[0]'] ? [eventdata['xaxis.range[0]'], eventdata['xaxis.range[1]']] : null);
-        let yRange = eventdata['yaxis.range'] || (eventdata['yaxis.range[0]'] ? [eventdata['yaxis.range[0]'], eventdata['yaxis.range[1]']] : null);
 
         // DEBUG: Log extracted ranges with dates
         console.log('[DEBUG relayout] Extracted ranges from eventdata:', {
