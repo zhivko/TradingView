@@ -2410,3 +2410,317 @@ requests.exceptions.HTTPError: 400 Client Error: Bad Request for url: https://ap
 2025-11-20 14:48:42,113 INFO [app] app.py:836 - Exiting route data path=/data method=GET duration_ms=902.11
 2025-11-20 14:48:42,544 INFO [app] app.py:836 - Exiting route drawings path=/drawings method=GET duration_ms=263.66
 2025-11-20 14:48:42,637 INFO [app] app.py:836 - Exiting route drawings path=/drawings method=GET duration_ms=310.75
+2025-11-20 15:02:34,700 INFO [app] app.py:326 - Application startup
+2025-11-20 15:02:35,519 INFO [app] app.py:2813 - PRELOADING WHISPER MODEL: Loading Whisper base model for audio transcription...
+2025-11-20 15:02:35,519 INFO [app] app.py:2822 - Loading Whisper base model...
+2025-11-20 15:02:35,963 INFO [app] app.py:2824 - WHISPER MODEL LOADED: Whisper base model successfully loaded and cached
+2025-11-20 15:02:35,963 INFO [app] app.py:2827 - CUDA availability: False
+2025-11-20 15:02:37,439 INFO [app] app.py:326 - Application startup
+2025-11-20 15:02:38,234 INFO [app] app.py:2813 - PRELOADING WHISPER MODEL: Loading Whisper base model for audio transcription...
+2025-11-20 15:02:38,234 INFO [app] app.py:2822 - Loading Whisper base model...
+2025-11-20 15:02:38,725 INFO [app] app.py:2824 - WHISPER MODEL LOADED: Whisper base model successfully loaded and cached
+2025-11-20 15:02:38,725 INFO [app] app.py:2827 - CUDA availability: False
+2025-11-20 15:03:35,430 INFO [app] app.py:844 - Exiting route index path=/ method=GET duration_ms=220.80
+2025-11-20 15:03:36,041 INFO [app] app.py:821 - User klemen.zivkovic@gmail.com joined personal Socket.IO room
+2025-11-20 15:03:36,408 INFO [app] app.py:844 - Exiting route view_range path=/view-range method=GET duration_ms=214.05
+2025-11-20 15:03:36,439 INFO [app] app.py:844 - Exiting route me path=/me method=GET duration_ms=0.00
+2025-11-20 15:03:36,732 INFO [app] app.py:844 - Exiting route view_range path=/view-range method=GET duration_ms=63.04
+2025-11-20 15:03:36,810 INFO [app] app.py:1693 - Starting /data request: symbol=BTCUSDT, interval=15m, start_time=1761999300000, end_time=1763643600000, limit=500, loadId=15, user=klemen.zivkovic@gmail.com
+2025-11-20 15:03:36,857 INFO [app] app.py:1721 - [DATA_DEBUG] /data request: symbol=BTCUSDT, interval=15m, start_time=1761999300000, end_time=1763643600000, limit=500, user=klemen.zivkovic@gmail.com, is_latest_mode=False
+2025-11-20 15:03:36,935 INFO [app] app.py:1693 - Starting /data request: symbol=BTCUSDT, interval=1h, start_time=1761999300000, end_time=1763643600000, limit=500, loadId=1, user=klemen.zivkovic@gmail.com
+2025-11-20 15:03:36,980 INFO [app] app.py:1721 - [DATA_DEBUG] /data request: symbol=BTCUSDT, interval=1h, start_time=1761999300000, end_time=1763643600000, limit=500, user=klemen.zivkovic@gmail.com, is_latest_mode=False
+2025-11-20 15:03:37,093 INFO [app] app.py:1894 - Progress: 100.0
+2025-11-20 15:03:37,150 WARNING [app] app.py:2026 - Significant candle continuity violations in /data response (potential data corruption): symbol=BTCUSDT interval=15m count=22, tolerance=0.1
+2025-11-20 15:03:37,150 INFO [app] app.py:821 - User klemen.zivkovic@gmail.com joined personal Socket.IO room
+2025-11-20 15:03:37,181 WARNING [app] app.py:2030 - First few continuity violations: [(1762079400000, 110390.47, 1762080300000, 110390.97), (1762171200000, 108065.85, 1762172100000, 108066.39), (1762200900000, 106745.92, 1762201800000, 106745.42), (1762400700000, 103636.03, 1762401600000, 103636.92), (1762415100000, 103185.48, 1762416000000, 103184.75), (1762459200000, 101307.5, 1762460100000, 101307.08), (1762461000000, 100762.46, 1762461900000, 100762.87), (1762525800000, 100793.33, 1762526700000, 100793.65), (1762526700000, 100806.08, 1762527600000, 100806.7), (1762544700000, 103395.25, 1762545600000, 103395.92)]
+2025-11-20 15:03:37,212 INFO [app] app.py:844 - Exiting route view_range path=/view-range method=GET duration_ms=61.05
+2025-11-20 15:03:37,275 INFO [app] app.py:1894 - Progress: 100.0
+2025-11-20 15:03:37,353 INFO [app] app.py:2092 - Completed /data request: symbol=BTCUSDT, interval=15m, returned_count=1391, loadId=15, user=klemen.zivkovic@gmail.com, redis_total=1391, redis_read=1391
+2025-11-20 15:03:37,430 INFO [app] app.py:1693 - Starting /data request: symbol=BTCUSDT, interval=1h, start_time=1761999300000, end_time=1763643600000, limit=500, loadId=2, user=klemen.zivkovic@gmail.com
+2025-11-20 15:03:37,430 INFO [app] app.py:2105 - [DATA_DEBUG] /data response: symbol=BTCUSDT, returned_count=1391, time_range=[1761999300000 to 1763250300000], first_close=110078.89, last_close=95596.24, rect_volume_profiles_count=0
+2025-11-20 15:03:37,491 INFO [app] app.py:1721 - [DATA_DEBUG] /data request: symbol=BTCUSDT, interval=1h, start_time=1761999300000, end_time=1763643600000, limit=500, user=klemen.zivkovic@gmail.com, is_latest_mode=False
+2025-11-20 15:03:37,553 WARNING [app] app.py:2026 - Significant candle continuity violations in /data response (potential data corruption): symbol=BTCUSDT interval=1h count=5, tolerance=0.1
+2025-11-20 15:03:37,558 INFO [app] app.py:844 - Exiting route data path=/data method=GET duration_ms=747.97
+2025-11-20 15:03:37,662 WARNING [app] app.py:2030 - First few continuity violations: [(1762398000000, 103636.03, 1762401600000, 103636.92), (1762412400000, 103185.48, 1762416000000, 103184.75), (1762524000000, 100806.08, 1762527600000, 100806.7), (1762542000000, 103395.25, 1762545600000, 103395.92), (1763010000000, 103135.84, 1763013600000, 103136.0)]
+2025-11-20 15:03:37,758 INFO [app] app.py:1894 - Progress: 100.0
+2025-11-20 15:03:37,819 INFO [app] app.py:2092 - Completed /data request: symbol=BTCUSDT, interval=1h, returned_count=347, loadId=1, user=klemen.zivkovic@gmail.com, redis_total=347, redis_read=347
+2025-11-20 15:03:37,896 WARNING [app] app.py:2026 - Significant candle continuity violations in /data response (potential data corruption): symbol=BTCUSDT interval=1h count=5, tolerance=0.1
+2025-11-20 15:03:37,896 INFO [app] app.py:2105 - [DATA_DEBUG] /data response: symbol=BTCUSDT, returned_count=347, time_range=[1762002000000 to 1763247600000], first_close=109946.27, last_close=95596.24, rect_volume_profiles_count=0
+2025-11-20 15:03:37,943 WARNING [app] app.py:2030 - First few continuity violations: [(1762398000000, 103636.03, 1762401600000, 103636.92), (1762412400000, 103185.48, 1762416000000, 103184.75), (1762524000000, 100806.08, 1762527600000, 100806.7), (1762542000000, 103395.25, 1762545600000, 103395.92), (1763010000000, 103135.84, 1763013600000, 103136.0)]
+2025-11-20 15:03:37,974 INFO [app] app.py:844 - Exiting route data path=/data method=GET duration_ms=1039.02
+2025-11-20 15:03:38,097 INFO [app] app.py:2092 - Completed /data request: symbol=BTCUSDT, interval=1h, returned_count=347, loadId=2, user=klemen.zivkovic@gmail.com, redis_total=347, redis_read=347
+2025-11-20 15:03:38,097 INFO [app] app.py:2105 - [DATA_DEBUG] /data response: symbol=BTCUSDT, returned_count=347, time_range=[1762002000000 to 1763247600000], first_close=109946.27, last_close=95596.24, rect_volume_profiles_count=0
+2025-11-20 15:03:38,113 INFO [app] app.py:844 - Exiting route data path=/data method=GET duration_ms=683.75
+2025-11-20 15:03:38,128 INFO [app] app.py:844 - Exiting route drawings path=/drawings method=GET duration_ms=201.00
+2025-11-20 15:03:38,376 INFO [app] app.py:844 - Exiting route drawings path=/drawings method=GET duration_ms=187.18
+2025-11-20 15:03:38,734 INFO [app] app.py:844 - Exiting route drawings path=/drawings method=GET duration_ms=264.94
+2025-11-20 15:03:51,788 INFO [app] app.py:844 - Exiting route view_range path=/view-range method=POST duration_ms=77.51
+2025-11-20 15:03:51,882 INFO [app] app.py:1693 - Starting /data request: symbol=BTCUSDT, interval=1h, start_time=1762988042600, end_time=1763259843562, limit=500, loadId=3, user=klemen.zivkovic@gmail.com
+2025-11-20 15:03:51,959 INFO [app] app.py:1721 - [DATA_DEBUG] /data request: symbol=BTCUSDT, interval=1h, start_time=1762988042600, end_time=1763259843562, limit=500, user=klemen.zivkovic@gmail.com, is_latest_mode=False
+2025-11-20 15:03:52,130 INFO [app] app.py:1894 - Progress: 100.0
+2025-11-20 15:03:52,270 WARNING [app] app.py:2026 - Significant candle continuity violations in /data response (potential data corruption): symbol=BTCUSDT interval=1h count=1, tolerance=0.1
+2025-11-20 15:03:52,301 WARNING [app] app.py:2030 - First few continuity violations: [(1763010000000, 103135.84, 1763013600000, 103136.0)]
+2025-11-20 15:03:52,426 INFO [app] app.py:2092 - Completed /data request: symbol=BTCUSDT, interval=1h, returned_count=73, loadId=3, user=klemen.zivkovic@gmail.com, redis_total=73, redis_read=73
+2025-11-20 15:03:52,441 INFO [app] app.py:2105 - [DATA_DEBUG] /data response: symbol=BTCUSDT, returned_count=73, time_range=[1762988400000 to 1763247600000], first_close=101654.37, last_close=95596.24, rect_volume_profiles_count=0
+2025-11-20 15:03:52,457 INFO [app] app.py:844 - Exiting route data path=/data method=GET duration_ms=574.58
+2025-11-20 15:03:52,862 INFO [app] app.py:844 - Exiting route drawings path=/drawings method=GET duration_ms=218.43
+2025-11-20 15:03:59,403 INFO [app] app.py:833 - Canceled load 3 for user klemen.zivkovic@gmail.com
+2025-11-20 15:03:59,449 INFO [app] app.py:844 - Exiting route view_range path=/view-range method=POST duration_ms=46.51
+2025-11-20 15:03:59,604 INFO [app] app.py:1693 - Starting /data request: symbol=BTCUSDT, interval=1h, start_time=1762724988377, end_time=1763301848586, limit=500, loadId=4, user=klemen.zivkovic@gmail.com
+2025-11-20 15:03:59,650 INFO [app] app.py:1721 - [DATA_DEBUG] /data request: symbol=BTCUSDT, interval=1h, start_time=1762724988377, end_time=1763301848586, limit=500, user=klemen.zivkovic@gmail.com, is_latest_mode=False
+2025-11-20 15:03:59,789 INFO [app] app.py:1894 - Progress: 100.0
+2025-11-20 15:03:59,928 WARNING [app] app.py:2026 - Significant candle continuity violations in /data response (potential data corruption): symbol=BTCUSDT interval=1h count=1, tolerance=0.1
+2025-11-20 15:03:59,974 WARNING [app] app.py:2030 - First few continuity violations: [(1763010000000, 103135.84, 1763013600000, 103136.0)]
+2025-11-20 15:04:00,115 INFO [app] app.py:2092 - Completed /data request: symbol=BTCUSDT, interval=1h, returned_count=146, loadId=4, user=klemen.zivkovic@gmail.com, redis_total=146, redis_read=146
+2025-11-20 15:04:00,147 INFO [app] app.py:2105 - [DATA_DEBUG] /data response: symbol=BTCUSDT, returned_count=146, time_range=[1762725600000 to 1763247600000], first_close=104732.48, last_close=95596.24, rect_volume_profiles_count=0
+2025-11-20 15:04:00,225 INFO [app] app.py:844 - Exiting route data path=/data method=GET duration_ms=620.89
+2025-11-20 15:04:00,535 INFO [app] app.py:844 - Exiting route drawings path=/drawings method=GET duration_ms=184.91
+2025-11-20 15:04:05,090 INFO [app] app.py:833 - Canceled load 4 for user klemen.zivkovic@gmail.com
+2025-11-20 15:04:05,183 INFO [app] app.py:844 - Exiting route view_range path=/view-range method=POST duration_ms=62.02
+2025-11-20 15:04:05,294 INFO [app] app.py:1693 - Starting /data request: symbol=BTCUSDT, interval=1h, start_time=1762220054962, end_time=1763381708769, limit=500, loadId=5, user=klemen.zivkovic@gmail.com
+2025-11-20 15:04:05,325 INFO [app] app.py:1721 - [DATA_DEBUG] /data request: symbol=BTCUSDT, interval=1h, start_time=1762220054962, end_time=1763381708769, limit=500, user=klemen.zivkovic@gmail.com, is_latest_mode=False
+2025-11-20 15:04:05,449 INFO [app] app.py:1894 - Progress: 100.0
+2025-11-20 15:04:05,650 WARNING [app] app.py:2026 - Significant candle continuity violations in /data response (potential data corruption): symbol=BTCUSDT interval=1h count=5, tolerance=0.1
+2025-11-20 15:04:05,665 WARNING [app] app.py:2030 - First few continuity violations: [(1762398000000, 103636.03, 1762401600000, 103636.92), (1762412400000, 103185.48, 1762416000000, 103184.75), (1762524000000, 100806.08, 1762527600000, 100806.7), (1762542000000, 103395.25, 1762545600000, 103395.92), (1763010000000, 103135.84, 1763013600000, 103136.0)]
+2025-11-20 15:04:05,790 INFO [app] app.py:2092 - Completed /data request: symbol=BTCUSDT, interval=1h, returned_count=286, loadId=5, user=klemen.zivkovic@gmail.com, redis_total=286, redis_read=286
+2025-11-20 15:04:05,805 INFO [app] app.py:2105 - [DATA_DEBUG] /data response: symbol=BTCUSDT, returned_count=286, time_range=[1762221600000 to 1763247600000], first_close=106482.6, last_close=95596.24, rect_volume_profiles_count=0
+2025-11-20 15:04:05,853 INFO [app] app.py:844 - Exiting route data path=/data method=GET duration_ms=559.17
+2025-11-20 15:04:06,148 INFO [app] app.py:844 - Exiting route drawings path=/drawings method=GET duration_ms=155.37
+2025-11-20 15:04:09,247 INFO [app] app.py:844 - Exiting route view_range path=/view-range method=GET duration_ms=75.15
+2025-11-20 15:04:09,417 INFO [app] app.py:1693 - Starting /data request: symbol=ETHUSDT, interval=1h, start_time=1762220054962, end_time=1763381708769, limit=500, loadId=6, user=klemen.zivkovic@gmail.com
+2025-11-20 15:04:09,448 INFO [app] app.py:1721 - [DATA_DEBUG] /data request: symbol=ETHUSDT, interval=1h, start_time=1762220054962, end_time=1763381708769, limit=500, user=klemen.zivkovic@gmail.com, is_latest_mode=False
+2025-11-20 15:04:09,636 INFO [app] app.py:1894 - Progress: 100.0
+2025-11-20 15:04:09,915 INFO [app] app.py:2092 - Completed /data request: symbol=ETHUSDT, interval=1h, returned_count=286, loadId=6, user=klemen.zivkovic@gmail.com, redis_total=286, redis_read=286
+2025-11-20 15:04:09,994 INFO [app] app.py:2105 - [DATA_DEBUG] /data response: symbol=ETHUSDT, returned_count=286, time_range=[1762221600000 to 1763247600000], first_close=3626.1, last_close=3167.88, rect_volume_profiles_count=0
+2025-11-20 15:04:10,026 INFO [app] app.py:844 - Exiting route data path=/data method=GET duration_ms=608.14
+2025-11-20 15:04:10,135 INFO [app] app.py:844 - Exiting route drawings path=/drawings method=GET duration_ms=46.46
+2025-11-20 15:04:11,280 INFO [app] app.py:833 - Canceled load 6 for user klemen.zivkovic@gmail.com
+2025-11-20 15:04:11,388 INFO [app] app.py:844 - Exiting route view_range path=/view-range method=POST duration_ms=45.29
+2025-11-20 15:04:14,479 INFO [app] app.py:833 - Canceled load 6 for user klemen.zivkovic@gmail.com
+2025-11-20 15:04:14,556 INFO [app] app.py:844 - Exiting route view_range path=/view-range method=POST duration_ms=62.27
+2025-11-20 15:04:14,712 INFO [app] app.py:1693 - Starting /data request: symbol=ETHUSDT, interval=1h, start_time=1761891388641, end_time=1764174793634, limit=500, loadId=7, user=klemen.zivkovic@gmail.com
+2025-11-20 15:04:14,774 INFO [app] app.py:1721 - [DATA_DEBUG] /data request: symbol=ETHUSDT, interval=1h, start_time=1761891388641, end_time=1764174793634, limit=500, user=klemen.zivkovic@gmail.com, is_latest_mode=False
+2025-11-20 15:04:14,899 INFO [app] app.py:1894 - Progress: 100.0
+2025-11-20 15:04:15,130 INFO [app] app.py:2092 - Completed /data request: symbol=ETHUSDT, interval=1h, returned_count=377, loadId=7, user=klemen.zivkovic@gmail.com, redis_total=377, redis_read=377
+2025-11-20 15:04:15,161 INFO [app] app.py:2105 - [DATA_DEBUG] /data response: symbol=ETHUSDT, returned_count=377, time_range=[1761894000000 to 1763247600000], first_close=3831.49, last_close=3167.88, rect_volume_profiles_count=0
+2025-11-20 15:04:15,177 INFO [app] app.py:844 - Exiting route data path=/data method=GET duration_ms=465.33
+2025-11-20 15:04:15,394 INFO [app] app.py:844 - Exiting route drawings path=/drawings method=GET duration_ms=61.80
+2025-11-20 15:04:15,596 INFO [app] app.py:833 - Canceled load 7 for user klemen.zivkovic@gmail.com
+2025-11-20 15:04:15,706 INFO [app] app.py:844 - Exiting route view_range path=/view-range method=POST duration_ms=108.74
+2025-11-20 15:04:15,832 INFO [app] app.py:1693 - Starting /data request: symbol=ETHUSDT, interval=1h, start_time=1761062829656, end_time=1763349834649, limit=500, loadId=8, user=klemen.zivkovic@gmail.com
+2025-11-20 15:04:15,832 INFO [app] app.py:1721 - [DATA_DEBUG] /data request: symbol=ETHUSDT, interval=1h, start_time=1761062829656, end_time=1763349834649, limit=500, user=klemen.zivkovic@gmail.com, is_latest_mode=False
+2025-11-20 15:04:16,003 INFO [app] app.py:1894 - Progress: 100.0
+2025-11-20 15:04:16,124 WARNING [app] app.py:2026 - Significant candle continuity violations in /data response (potential data corruption): symbol=ETHUSDT interval=1h count=2, tolerance=0.1
+2025-11-20 15:04:16,154 WARNING [app] app.py:2030 - First few continuity violations: [(1761757200000, 4013.8, 1761760800000, 4013.7), (1761865200000, 3805.09, 1761868800000, 3804.95)]
+2025-11-20 15:04:16,261 INFO [app] app.py:2092 - Completed /data request: symbol=ETHUSDT, interval=1h, returned_count=607, loadId=8, user=klemen.zivkovic@gmail.com, redis_total=607, redis_read=607
+2025-11-20 15:04:16,323 INFO [app] app.py:2105 - [DATA_DEBUG] /data response: symbol=ETHUSDT, returned_count=607, time_range=[1761066000000 to 1763247600000], first_close=4014.63, last_close=3167.88, rect_volume_profiles_count=0
+2025-11-20 15:04:16,370 INFO [app] app.py:844 - Exiting route data path=/data method=GET duration_ms=538.51
+2025-11-20 15:04:16,586 INFO [app] app.py:844 - Exiting route drawings path=/drawings method=GET duration_ms=76.72
+2025-11-20 15:04:18,026 INFO [app] app.py:844 - Exiting route index path=/ method=GET duration_ms=15.64
+2025-11-20 15:04:20,149 INFO [app] app.py:833 - Canceled load 8 for user klemen.zivkovic@gmail.com
+2025-11-20 15:04:20,164 INFO [app] app.py:844 - Exiting route view_range path=/view-range method=POST duration_ms=30.86
+2025-11-20 15:04:20,321 INFO [app] app.py:1693 - Starting /data request: symbol=ETHUSDT, interval=1h, start_time=1759917564273, end_time=1765010987489, limit=500, loadId=9, user=klemen.zivkovic@gmail.com
+2025-11-20 15:04:20,382 INFO [app] app.py:1721 - [DATA_DEBUG] /data request: symbol=ETHUSDT, interval=1h, start_time=1759917564273, end_time=1765010987489, limit=500, user=klemen.zivkovic@gmail.com, is_latest_mode=False
+2025-11-20 15:04:20,554 INFO [app] app.py:1894 - Progress: 100.0
+2025-11-20 15:04:20,645 WARNING [app] app.py:2026 - Significant candle continuity violations in /data response (potential data corruption): symbol=ETHUSDT interval=1h count=4, tolerance=0.1
+2025-11-20 15:04:20,692 WARNING [app] app.py:2030 - First few continuity violations: [(1760641200000, 3867.01, 1760644800000, 3867.14), (1760648400000, 3883.82, 1760652000000, 3884.0), (1761757200000, 4013.8, 1761760800000, 4013.7), (1761865200000, 3805.09, 1761868800000, 3804.95)]
+2025-11-20 15:04:20,830 INFO [app] app.py:2092 - Completed /data request: symbol=ETHUSDT, interval=1h, returned_count=926, loadId=9, user=klemen.zivkovic@gmail.com, redis_total=926, redis_read=926
+2025-11-20 15:04:20,846 INFO [app] app.py:2105 - [DATA_DEBUG] /data response: symbol=ETHUSDT, returned_count=926, time_range=[1759917600000 to 1763247600000], first_close=4500.08, last_close=3167.88, rect_volume_profiles_count=0
+2025-11-20 15:04:20,864 INFO [app] app.py:844 - Exiting route data path=/data method=GET duration_ms=543.08
+2025-11-20 15:04:21,034 INFO [app] app.py:844 - Exiting route drawings path=/drawings method=GET duration_ms=62.27
+2025-11-20 15:04:21,236 INFO [app] app.py:833 - Canceled load 9 for user klemen.zivkovic@gmail.com
+2025-11-20 15:04:21,236 INFO [app] app.py:844 - Exiting route view_range path=/view-range method=POST duration_ms=15.46
+2025-11-20 15:04:21,379 INFO [app] app.py:1693 - Starting /data request: symbol=ETHUSDT, interval=1h, start_time=1758133174867, end_time=1763226598083, limit=500, loadId=10, user=klemen.zivkovic@gmail.com
+2025-11-20 15:04:21,456 INFO [app] app.py:1721 - [DATA_DEBUG] /data request: symbol=ETHUSDT, interval=1h, start_time=1758133174867, end_time=1763226598083, limit=500, user=klemen.zivkovic@gmail.com, is_latest_mode=False
+2025-11-20 15:04:21,773 INFO [app] app.py:1894 - Progress: 100.0
+2025-11-20 15:04:21,845 WARNING [app] app.py:2026 - Significant candle continuity violations in /data response (potential data corruption): symbol=ETHUSDT interval=1h count=4, tolerance=0.1
+2025-11-20 15:04:21,861 WARNING [app] app.py:2030 - First few continuity violations: [(1760641200000, 3867.01, 1760644800000, 3867.14), (1760648400000, 3883.82, 1760652000000, 3884.0), (1761757200000, 4013.8, 1761760800000, 4013.7), (1761865200000, 3805.09, 1761868800000, 3804.95)]
+2025-11-20 15:04:21,954 INFO [app] app.py:2092 - Completed /data request: symbol=ETHUSDT, interval=1h, returned_count=1415, loadId=10, user=klemen.zivkovic@gmail.com, redis_total=1415, redis_read=1415
+2025-11-20 15:04:22,000 INFO [app] app.py:2105 - [DATA_DEBUG] /data response: symbol=ETHUSDT, returned_count=1415, time_range=[1758135600000 to 1763226000000], first_close=4517.62, last_close=3214.99, rect_volume_profiles_count=0
+2025-11-20 15:04:22,049 INFO [app] app.py:844 - Exiting route data path=/data method=GET duration_ms=669.81
+2025-11-20 15:04:22,280 INFO [app] app.py:844 - Exiting route drawings path=/drawings method=GET duration_ms=77.30
+2025-11-20 15:04:24,684 INFO [app] app.py:833 - Canceled load 10 for user klemen.zivkovic@gmail.com
+2025-11-20 15:04:24,793 INFO [app] app.py:844 - Exiting route view_range path=/view-range method=POST duration_ms=46.47
+2025-11-20 15:04:24,902 INFO [app] app.py:1693 - Starting /data request: symbol=ETHUSDT, interval=1h, start_time=1758216847716, end_time=1763313870932, limit=500, loadId=11, user=klemen.zivkovic@gmail.com
+2025-11-20 15:04:24,948 INFO [app] app.py:1721 - [DATA_DEBUG] /data request: symbol=ETHUSDT, interval=1h, start_time=1758216847716, end_time=1763313870932, limit=500, user=klemen.zivkovic@gmail.com, is_latest_mode=False
+2025-11-20 15:04:25,233 INFO [app] app.py:1894 - Progress: 100.0
+2025-11-20 15:04:25,402 WARNING [app] app.py:2026 - Significant candle continuity violations in /data response (potential data corruption): symbol=ETHUSDT interval=1h count=4, tolerance=0.1
+2025-11-20 15:04:25,433 WARNING [app] app.py:2030 - First few continuity violations: [(1760641200000, 3867.01, 1760644800000, 3867.14), (1760648400000, 3883.82, 1760652000000, 3884.0), (1761757200000, 4013.8, 1761760800000, 4013.7), (1761865200000, 3805.09, 1761868800000, 3804.95)]
+2025-11-20 15:04:25,544 INFO [app] app.py:2092 - Completed /data request: symbol=ETHUSDT, interval=1h, returned_count=1398, loadId=11, user=klemen.zivkovic@gmail.com, redis_total=1398, redis_read=1398
+2025-11-20 15:04:25,559 INFO [app] app.py:2105 - [DATA_DEBUG] /data response: symbol=ETHUSDT, returned_count=1398, time_range=[1758218400000 to 1763247600000], first_close=4618.2, last_close=3167.88, rect_volume_profiles_count=0
+2025-11-20 15:04:25,655 INFO [app] app.py:844 - Exiting route data path=/data method=GET duration_ms=752.54
+2025-11-20 15:04:25,838 INFO [app] app.py:844 - Exiting route drawings path=/drawings method=GET duration_ms=79.07
+2025-11-20 15:04:38,671 INFO [app] app.py:833 - Canceled load 11 for user klemen.zivkovic@gmail.com
+2025-11-20 15:04:38,733 INFO [app] app.py:844 - Exiting route view_range path=/view-range method=POST duration_ms=60.84
+2025-11-20 15:04:38,858 INFO [app] app.py:1693 - Starting /data request: symbol=ETHUSDT, interval=1h, start_time=1759651000400, end_time=1764751623616, limit=500, loadId=12, user=klemen.zivkovic@gmail.com
+2025-11-20 15:04:38,921 INFO [app] app.py:1721 - [DATA_DEBUG] /data request: symbol=ETHUSDT, interval=1h, start_time=1759651000400, end_time=1764751623616, limit=500, user=klemen.zivkovic@gmail.com, is_latest_mode=False
+2025-11-20 15:04:39,153 INFO [app] app.py:1894 - Progress: 100.0
+2025-11-20 15:04:39,243 WARNING [app] app.py:2026 - Significant candle continuity violations in /data response (potential data corruption): symbol=ETHUSDT interval=1h count=4, tolerance=0.1
+2025-11-20 15:04:39,273 WARNING [app] app.py:2030 - First few continuity violations: [(1760641200000, 3867.01, 1760644800000, 3867.14), (1760648400000, 3883.82, 1760652000000, 3884.0), (1761757200000, 4013.8, 1761760800000, 4013.7), (1761865200000, 3805.09, 1761868800000, 3804.95)]
+2025-11-20 15:04:39,367 INFO [app] app.py:2092 - Completed /data request: symbol=ETHUSDT, interval=1h, returned_count=1000, loadId=12, user=klemen.zivkovic@gmail.com, redis_total=1000, redis_read=1000
+2025-11-20 15:04:39,398 INFO [app] app.py:2105 - [DATA_DEBUG] /data response: symbol=ETHUSDT, returned_count=1000, time_range=[1759651200000 to 1763247600000], first_close=4587.54, last_close=3167.88, rect_volume_profiles_count=0
+2025-11-20 15:04:39,415 INFO [app] app.py:844 - Exiting route data path=/data method=GET duration_ms=556.90
+2025-11-20 15:04:39,539 INFO [app] app.py:844 - Exiting route drawings path=/drawings method=GET duration_ms=31.39
+2025-11-20 15:04:39,754 INFO [app] app.py:833 - Canceled load 12 for user klemen.zivkovic@gmail.com
+2025-11-20 15:04:39,831 INFO [app] app.py:844 - Exiting route view_range path=/view-range method=POST duration_ms=76.22
+2025-11-20 15:04:39,924 INFO [app] app.py:1693 - Starting /data request: symbol=ETHUSDT, interval=1h, start_time=1758377881310, end_time=1763478504526, limit=500, loadId=13, user=klemen.zivkovic@gmail.com
+2025-11-20 15:04:40,002 INFO [app] app.py:1721 - [DATA_DEBUG] /data request: symbol=ETHUSDT, interval=1h, start_time=1758377881310, end_time=1763478504526, limit=500, user=klemen.zivkovic@gmail.com, is_latest_mode=False
+2025-11-20 15:04:40,286 INFO [app] app.py:1894 - Progress: 100.0
+2025-11-20 15:04:40,360 WARNING [app] app.py:2026 - Significant candle continuity violations in /data response (potential data corruption): symbol=ETHUSDT interval=1h count=4, tolerance=0.1
+2025-11-20 15:04:40,391 WARNING [app] app.py:2030 - First few continuity violations: [(1760641200000, 3867.01, 1760644800000, 3867.14), (1760648400000, 3883.82, 1760652000000, 3884.0), (1761757200000, 4013.8, 1761760800000, 4013.7), (1761865200000, 3805.09, 1761868800000, 3804.95)]
+2025-11-20 15:04:40,575 INFO [app] app.py:2092 - Completed /data request: symbol=ETHUSDT, interval=1h, returned_count=1353, loadId=13, user=klemen.zivkovic@gmail.com, redis_total=1353, redis_read=1353
+2025-11-20 15:04:40,606 INFO [app] app.py:2105 - [DATA_DEBUG] /data response: symbol=ETHUSDT, returned_count=1353, time_range=[1758380400000 to 1763247600000], first_close=4498.2, last_close=3167.88, rect_volume_profiles_count=0
+2025-11-20 15:04:40,687 INFO [app] app.py:844 - Exiting route data path=/data method=GET duration_ms=763.01
+2025-11-20 15:04:40,873 INFO [app] app.py:844 - Exiting route drawings path=/drawings method=GET duration_ms=48.69
+2025-11-20 15:05:49,803 INFO [app] app.py:833 - Canceled load 13 for user klemen.zivkovic@gmail.com
+2025-11-20 15:05:49,880 INFO [app] app.py:844 - Exiting route view_range path=/view-range method=POST duration_ms=77.55
+2025-11-20 15:05:50,004 INFO [app] app.py:1693 - Starting /data request: symbol=ETHUSDT, interval=1h, start_time=1758380400000, end_time=1763247600000, limit=500, loadId=14, user=klemen.zivkovic@gmail.com
+2025-11-20 15:05:50,035 INFO [app] app.py:1721 - [DATA_DEBUG] /data request: symbol=ETHUSDT, interval=1h, start_time=1758380400000, end_time=1763247600000, limit=500, user=klemen.zivkovic@gmail.com, is_latest_mode=False
+2025-11-20 15:05:50,208 INFO [app] app.py:1894 - Progress: 100.0
+2025-11-20 15:05:50,295 WARNING [app] app.py:2026 - Significant candle continuity violations in /data response (potential data corruption): symbol=ETHUSDT interval=1h count=4, tolerance=0.1
+2025-11-20 15:05:50,326 WARNING [app] app.py:2030 - First few continuity violations: [(1760641200000, 3867.01, 1760644800000, 3867.14), (1760648400000, 3883.82, 1760652000000, 3884.0), (1761757200000, 4013.8, 1761760800000, 4013.7), (1761865200000, 3805.09, 1761868800000, 3804.95)]
+2025-11-20 15:05:50,450 INFO [app] app.py:2092 - Completed /data request: symbol=ETHUSDT, interval=1h, returned_count=1353, loadId=14, user=klemen.zivkovic@gmail.com, redis_total=1353, redis_read=1353
+2025-11-20 15:05:50,497 INFO [app] app.py:2105 - [DATA_DEBUG] /data response: symbol=ETHUSDT, returned_count=1353, time_range=[1758380400000 to 1763247600000], first_close=4498.2, last_close=3167.88, rect_volume_profiles_count=0
+2025-11-20 15:05:50,560 INFO [app] app.py:844 - Exiting route data path=/data method=GET duration_ms=556.32
+2025-11-20 15:05:50,729 INFO [app] app.py:844 - Exiting route drawings path=/drawings method=GET duration_ms=30.54
+2025-11-20 15:05:53,492 INFO [app] app.py:833 - Canceled load 14 for user klemen.zivkovic@gmail.com
+2025-11-20 15:05:53,554 INFO [app] app.py:844 - Exiting route view_range path=/view-range method=POST duration_ms=31.35
+2025-11-20 15:05:53,646 INFO [app] app.py:1693 - Starting /data request: symbol=ETHUSDT, interval=1h, start_time=1759055152402, end_time=1761475732393, limit=500, loadId=15, user=klemen.zivkovic@gmail.com
+2025-11-20 15:05:53,660 INFO [app] app.py:1721 - [DATA_DEBUG] /data request: symbol=ETHUSDT, interval=1h, start_time=1759055152402, end_time=1761475732393, limit=500, user=klemen.zivkovic@gmail.com, is_latest_mode=False
+2025-11-20 15:05:53,895 INFO [app] app.py:1894 - Progress: 100.0
+2025-11-20 15:05:54,002 WARNING [app] app.py:2026 - Significant candle continuity violations in /data response (potential data corruption): symbol=ETHUSDT interval=1h count=2, tolerance=0.1
+2025-11-20 15:05:54,033 WARNING [app] app.py:2030 - First few continuity violations: [(1760641200000, 3867.01, 1760644800000, 3867.14), (1760648400000, 3883.82, 1760652000000, 3884.0)]
+2025-11-20 15:05:54,157 INFO [app] app.py:2092 - Completed /data request: symbol=ETHUSDT, interval=1h, returned_count=672, loadId=15, user=klemen.zivkovic@gmail.com, redis_total=672, redis_read=672
+2025-11-20 15:05:54,188 INFO [app] app.py:2105 - [DATA_DEBUG] /data response: symbol=ETHUSDT, returned_count=672, time_range=[1759057200000 to 1761472800000], first_close=3992.39, last_close=3983.19, rect_volume_profiles_count=0
+2025-11-20 15:05:54,253 INFO [app] app.py:844 - Exiting route data path=/data method=GET duration_ms=607.05
+2025-11-20 15:05:54,483 INFO [app] app.py:844 - Exiting route drawings path=/drawings method=GET duration_ms=62.03
+2025-11-20 15:05:57,518 INFO [app] app.py:833 - Canceled load 15 for user klemen.zivkovic@gmail.com
+2025-11-20 15:05:57,597 INFO [app] app.py:844 - Exiting route view_range path=/view-range method=POST duration_ms=62.50
+2025-11-20 15:05:57,769 INFO [app] app.py:1693 - Starting /data request: symbol=ETHUSDT, interval=1h, start_time=1759057200000, end_time=1761472800000, limit=500, loadId=16, user=klemen.zivkovic@gmail.com
+2025-11-20 15:05:57,800 INFO [app] app.py:1721 - [DATA_DEBUG] /data request: symbol=ETHUSDT, interval=1h, start_time=1759057200000, end_time=1761472800000, limit=500, user=klemen.zivkovic@gmail.com, is_latest_mode=False
+2025-11-20 15:05:58,017 INFO [app] app.py:1894 - Progress: 100.0
+2025-11-20 15:05:58,093 WARNING [app] app.py:2026 - Significant candle continuity violations in /data response (potential data corruption): symbol=ETHUSDT interval=1h count=2, tolerance=0.1
+2025-11-20 15:05:58,123 WARNING [app] app.py:2030 - First few continuity violations: [(1760641200000, 3867.01, 1760644800000, 3867.14), (1760648400000, 3883.82, 1760652000000, 3884.0)]
+2025-11-20 15:05:58,216 INFO [app] app.py:2092 - Completed /data request: symbol=ETHUSDT, interval=1h, returned_count=672, loadId=16, user=klemen.zivkovic@gmail.com, redis_total=672, redis_read=672
+2025-11-20 15:05:58,264 INFO [app] app.py:2105 - [DATA_DEBUG] /data response: symbol=ETHUSDT, returned_count=672, time_range=[1759057200000 to 1761472800000], first_close=3992.39, last_close=3983.19, rect_volume_profiles_count=0
+2025-11-20 15:05:58,311 INFO [app] app.py:844 - Exiting route data path=/data method=GET duration_ms=542.30
+2025-11-20 15:05:58,497 INFO [app] app.py:844 - Exiting route drawings path=/drawings method=GET duration_ms=78.00
+2025-11-20 15:06:01,123 INFO [app] app.py:833 - Canceled load 16 for user klemen.zivkovic@gmail.com
+2025-11-20 15:06:01,216 INFO [app] app.py:844 - Exiting route view_range path=/view-range method=POST duration_ms=77.00
+2025-11-20 15:06:01,355 INFO [app] app.py:1693 - Starting /data request: symbol=ETHUSDT, interval=1h, start_time=1759846803019, end_time=1760385796234, limit=500, loadId=17, user=klemen.zivkovic@gmail.com
+2025-11-20 15:06:01,387 INFO [app] app.py:1721 - [DATA_DEBUG] /data request: symbol=ETHUSDT, interval=1h, start_time=1759846803019, end_time=1760385796234, limit=500, user=klemen.zivkovic@gmail.com, is_latest_mode=False
+2025-11-20 15:06:01,529 INFO [app] app.py:1894 - Progress: 100.0
+2025-11-20 15:06:01,699 INFO [app] app.py:2092 - Completed /data request: symbol=ETHUSDT, interval=1h, returned_count=150, loadId=17, user=klemen.zivkovic@gmail.com, redis_total=150, redis_read=150
+2025-11-20 15:06:01,761 INFO [app] app.py:2105 - [DATA_DEBUG] /data response: symbol=ETHUSDT, returned_count=150, time_range=[1759849200000 to 1760385600000], first_close=4511.99, last_close=4286.21, rect_volume_profiles_count=0
+2025-11-20 15:06:01,807 INFO [app] app.py:844 - Exiting route data path=/data method=GET duration_ms=451.87
+2025-11-20 15:06:01,947 INFO [app] app.py:844 - Exiting route drawings path=/drawings method=GET duration_ms=31.12
+2025-11-20 15:06:04,109 INFO [app] app.py:833 - Canceled load 17 for user klemen.zivkovic@gmail.com
+2025-11-20 15:06:04,154 INFO [app] app.py:844 - Exiting route view_range path=/view-range method=POST duration_ms=45.29
+2025-11-20 15:06:04,231 INFO [app] app.py:1693 - Starting /data request: symbol=ETHUSDT, interval=1h, start_time=1759849200000, end_time=1760385600000, limit=500, loadId=18, user=klemen.zivkovic@gmail.com
+2025-11-20 15:06:04,277 INFO [app] app.py:1721 - [DATA_DEBUG] /data request: symbol=ETHUSDT, interval=1h, start_time=1759849200000, end_time=1760385600000, limit=500, user=klemen.zivkovic@gmail.com, is_latest_mode=False
+2025-11-20 15:06:04,466 INFO [app] app.py:1894 - Progress: 100.0
+2025-11-20 15:06:04,668 INFO [app] app.py:2092 - Completed /data request: symbol=ETHUSDT, interval=1h, returned_count=150, loadId=18, user=klemen.zivkovic@gmail.com, redis_total=150, redis_read=150
+2025-11-20 15:06:04,700 INFO [app] app.py:2105 - [DATA_DEBUG] /data response: symbol=ETHUSDT, returned_count=150, time_range=[1759849200000 to 1760385600000], first_close=4511.99, last_close=4286.21, rect_volume_profiles_count=0
+2025-11-20 15:06:04,731 INFO [app] app.py:844 - Exiting route data path=/data method=GET duration_ms=500.26
+2025-11-20 15:06:04,916 INFO [app] app.py:844 - Exiting route drawings path=/drawings method=GET duration_ms=31.05
+2025-11-20 15:06:07,266 INFO [app] app.py:844 - Exiting route view_range path=/view-range method=POST duration_ms=46.62
+2025-11-20 15:06:07,281 INFO [app] app.py:833 - Canceled load 18 for user klemen.zivkovic@gmail.com
+2025-11-20 15:06:07,357 INFO [app] app.py:1693 - Starting /data request: symbol=ETHUSDT, interval=1h, start_time=1760006979140, end_time=1760225063105, limit=500, loadId=19, user=klemen.zivkovic@gmail.com
+2025-11-20 15:06:07,373 INFO [app] app.py:1721 - [DATA_DEBUG] /data request: symbol=ETHUSDT, interval=1h, start_time=1760006979140, end_time=1760225063105, limit=500, user=klemen.zivkovic@gmail.com, is_latest_mode=False
+2025-11-20 15:06:07,511 INFO [app] app.py:1894 - Progress: 100.0
+2025-11-20 15:06:07,650 INFO [app] app.py:2092 - Completed /data request: symbol=ETHUSDT, interval=1h, returned_count=61, loadId=19, user=klemen.zivkovic@gmail.com, redis_total=61, redis_read=61
+2025-11-20 15:06:07,666 INFO [app] app.py:2105 - [DATA_DEBUG] /data response: symbol=ETHUSDT, returned_count=61, time_range=[1760007600000 to 1760223600000], first_close=4373.05, last_close=3746.79, rect_volume_profiles_count=0
+2025-11-20 15:06:07,681 INFO [app] app.py:844 - Exiting route data path=/data method=GET duration_ms=323.62
+2025-11-20 15:06:07,836 INFO [app] app.py:844 - Exiting route drawings path=/drawings method=GET duration_ms=45.40
+2025-11-20 15:06:09,687 INFO [app] app.py:833 - Canceled load 19 for user klemen.zivkovic@gmail.com
+2025-11-20 15:06:09,829 INFO [app] app.py:844 - Exiting route view_range path=/view-range method=POST duration_ms=126.18
+2025-11-20 15:06:09,952 INFO [app] app.py:1693 - Starting /data request: symbol=ETHUSDT, interval=1h, start_time=1760007600000, end_time=1760223600000, limit=500, loadId=20, user=klemen.zivkovic@gmail.com
+2025-11-20 15:06:09,968 INFO [app] app.py:1721 - [DATA_DEBUG] /data request: symbol=ETHUSDT, interval=1h, start_time=1760007600000, end_time=1760223600000, limit=500, user=klemen.zivkovic@gmail.com, is_latest_mode=False
+2025-11-20 15:06:10,202 INFO [app] app.py:1894 - Progress: 100.0
+2025-11-20 15:06:10,515 INFO [app] app.py:2092 - Completed /data request: symbol=ETHUSDT, interval=1h, returned_count=61, loadId=20, user=klemen.zivkovic@gmail.com, redis_total=61, redis_read=61
+2025-11-20 15:06:10,561 INFO [app] app.py:2105 - [DATA_DEBUG] /data response: symbol=ETHUSDT, returned_count=61, time_range=[1760007600000 to 1760223600000], first_close=4373.05, last_close=3746.79, rect_volume_profiles_count=0
+2025-11-20 15:06:10,608 INFO [app] app.py:844 - Exiting route data path=/data method=GET duration_ms=655.30
+2025-11-20 15:06:10,827 INFO [app] app.py:844 - Exiting route drawings path=/drawings method=GET duration_ms=46.42
+2025-11-20 15:06:49,575 INFO [app] app.py:833 - Canceled load 20 for user klemen.zivkovic@gmail.com
+2025-11-20 15:06:49,729 INFO [app] app.py:844 - Exiting route view_range path=/view-range method=POST duration_ms=139.01
+2025-11-20 15:06:49,821 INFO [app] app.py:1693 - Starting /data request: symbol=ETHUSDT, interval=1h, start_time=1760021402676, end_time=1760237402676, limit=500, loadId=21, user=klemen.zivkovic@gmail.com
+2025-11-20 15:06:49,837 INFO [app] app.py:1721 - [DATA_DEBUG] /data request: symbol=ETHUSDT, interval=1h, start_time=1760021402676, end_time=1760237402676, limit=500, user=klemen.zivkovic@gmail.com, is_latest_mode=False
+2025-11-20 15:06:49,978 INFO [app] app.py:1894 - Progress: 100.0
+2025-11-20 15:06:50,196 INFO [app] app.py:2092 - Completed /data request: symbol=ETHUSDT, interval=1h, returned_count=60, loadId=21, user=klemen.zivkovic@gmail.com, redis_total=60, redis_read=60
+2025-11-20 15:06:50,227 INFO [app] app.py:2105 - [DATA_DEBUG] /data response: symbol=ETHUSDT, returned_count=60, time_range=[1760022000000 to 1760234400000], first_close=4314.79, last_close=3734.06, rect_volume_profiles_count=0
+2025-11-20 15:06:50,243 INFO [app] app.py:844 - Exiting route data path=/data method=GET duration_ms=421.96
+2025-11-20 15:06:50,383 INFO [app] app.py:844 - Exiting route drawings path=/drawings method=GET duration_ms=61.53
+2025-11-20 15:06:53,350 INFO [app] app.py:833 - Canceled load 21 for user klemen.zivkovic@gmail.com
+2025-11-20 15:06:53,427 INFO [app] app.py:844 - Exiting route view_range path=/view-range method=POST duration_ms=46.19
+2025-11-20 15:06:53,584 INFO [app] app.py:1693 - Starting /data request: symbol=ETHUSDT, interval=1h, start_time=1759848156958, end_time=1760565302213, limit=500, loadId=22, user=klemen.zivkovic@gmail.com
+2025-11-20 15:06:53,645 INFO [app] app.py:1721 - [DATA_DEBUG] /data request: symbol=ETHUSDT, interval=1h, start_time=1759848156958, end_time=1760565302213, limit=500, user=klemen.zivkovic@gmail.com, is_latest_mode=False
+2025-11-20 15:06:53,800 INFO [app] app.py:1894 - Progress: 100.0
+2025-11-20 15:06:54,033 INFO [app] app.py:2092 - Completed /data request: symbol=ETHUSDT, interval=1h, returned_count=199, loadId=22, user=klemen.zivkovic@gmail.com, redis_total=199, redis_read=199
+2025-11-20 15:06:54,048 INFO [app] app.py:2105 - [DATA_DEBUG] /data response: symbol=ETHUSDT, returned_count=199, time_range=[1759849200000 to 1760562000000], first_close=4511.99, last_close=3954.17, rect_volume_profiles_count=0
+2025-11-20 15:06:54,078 INFO [app] app.py:844 - Exiting route data path=/data method=GET duration_ms=494.20
+2025-11-20 15:06:54,265 INFO [app] app.py:844 - Exiting route drawings path=/drawings method=GET duration_ms=61.92
+2025-11-20 15:06:54,375 INFO [app] app.py:833 - Canceled load 22 for user klemen.zivkovic@gmail.com
+2025-11-20 15:06:54,468 INFO [app] app.py:844 - Exiting route view_range path=/view-range method=POST duration_ms=46.98
+2025-11-20 15:06:54,577 INFO [app] app.py:1693 - Starting /data request: symbol=ETHUSDT, interval=1h, start_time=1759571790544, end_time=1760288935799, limit=500, loadId=23, user=klemen.zivkovic@gmail.com
+2025-11-20 15:06:54,608 INFO [app] app.py:1721 - [DATA_DEBUG] /data request: symbol=ETHUSDT, interval=1h, start_time=1759571790544, end_time=1760288935799, limit=500, user=klemen.zivkovic@gmail.com, is_latest_mode=False
+2025-11-20 15:06:54,810 INFO [app] app.py:1894 - Progress: 100.0
+2025-11-20 15:06:55,060 INFO [app] app.py:2092 - Completed /data request: symbol=ETHUSDT, interval=1h, returned_count=200, loadId=23, user=klemen.zivkovic@gmail.com, redis_total=200, redis_read=200
+2025-11-20 15:06:55,106 INFO [app] app.py:2105 - [DATA_DEBUG] /data response: symbol=ETHUSDT, returned_count=200, time_range=[1759572000000 to 1760288400000], first_close=4487.55, last_close=4127.85, rect_volume_profiles_count=0
+2025-11-20 15:06:55,122 INFO [app] app.py:844 - Exiting route data path=/data method=GET duration_ms=545.64
+2025-11-20 15:06:55,277 INFO [app] app.py:844 - Exiting route drawings path=/drawings method=GET duration_ms=46.92
+2025-11-20 15:06:58,372 INFO [app] app.py:833 - Canceled load 23 for user klemen.zivkovic@gmail.com
+2025-11-20 15:06:58,464 INFO [app] app.py:844 - Exiting route view_range path=/view-range method=POST duration_ms=13.93
+2025-11-20 15:06:58,559 INFO [app] app.py:1693 - Starting /data request: symbol=ETHUSDT, interval=1h, start_time=1759572000000, end_time=1760288400000, limit=500, loadId=24, user=klemen.zivkovic@gmail.com
+2025-11-20 15:06:58,588 INFO [app] app.py:1721 - [DATA_DEBUG] /data request: symbol=ETHUSDT, interval=1h, start_time=1759572000000, end_time=1760288400000, limit=500, user=klemen.zivkovic@gmail.com, is_latest_mode=False
+2025-11-20 15:06:58,745 INFO [app] app.py:1894 - Progress: 100.0
+2025-11-20 15:06:58,868 INFO [app] app.py:2092 - Completed /data request: symbol=ETHUSDT, interval=1h, returned_count=200, loadId=24, user=klemen.zivkovic@gmail.com, redis_total=200, redis_read=200
+2025-11-20 15:06:58,900 INFO [app] app.py:2105 - [DATA_DEBUG] /data response: symbol=ETHUSDT, returned_count=200, time_range=[1759572000000 to 1760288400000], first_close=4487.55, last_close=4127.85, rect_volume_profiles_count=0
+2025-11-20 15:06:58,931 INFO [app] app.py:844 - Exiting route data path=/data method=GET duration_ms=371.96
+2025-11-20 15:06:59,213 INFO [app] app.py:844 - Exiting route drawings path=/drawings method=GET duration_ms=94.46
+2025-11-20 15:07:01,539 INFO [app] app.py:833 - Canceled load 24 for user klemen.zivkovic@gmail.com
+2025-11-20 15:07:01,569 INFO [app] app.py:844 - Exiting route view_range path=/view-range method=POST duration_ms=30.35
+2025-11-20 15:07:01,663 INFO [app] app.py:1693 - Starting /data request: symbol=ETHUSDT, interval=1h, start_time=1759167530564, end_time=1760348674482, limit=500, loadId=25, user=klemen.zivkovic@gmail.com
+2025-11-20 15:07:01,693 INFO [app] app.py:1721 - [DATA_DEBUG] /data request: symbol=ETHUSDT, interval=1h, start_time=1759167530564, end_time=1760348674482, limit=500, user=klemen.zivkovic@gmail.com, is_latest_mode=False
+2025-11-20 15:07:01,881 INFO [app] app.py:1894 - Progress: 100.0
+2025-11-20 15:07:02,065 INFO [app] app.py:2092 - Completed /data request: symbol=ETHUSDT, interval=1h, returned_count=328, loadId=25, user=klemen.zivkovic@gmail.com, redis_total=328, redis_read=328
+2025-11-20 15:07:02,112 INFO [app] app.py:2105 - [DATA_DEBUG] /data response: symbol=ETHUSDT, returned_count=328, time_range=[1759168800000 to 1760346000000], first_close=4162.29, last_close=4164.56, rect_volume_profiles_count=0
+2025-11-20 15:07:02,144 INFO [app] app.py:844 - Exiting route data path=/data method=GET duration_ms=481.52
+2025-11-20 15:07:02,362 INFO [app] app.py:844 - Exiting route drawings path=/drawings method=GET duration_ms=78.54
+2025-11-20 15:07:07,823 INFO [app] app.py:844 - Exiting route index path=/ method=GET duration_ms=16.03
+2025-11-20 15:07:08,569 INFO [app] app.py:844 - Exiting route me path=/me method=GET duration_ms=0.00
+2025-11-20 15:07:08,929 INFO [app] app.py:844 - Exiting route view_range path=/view-range method=GET duration_ms=79.12
+2025-11-20 15:07:09,366 INFO [app] app.py:1693 - Starting /data request: symbol=ETHUSDT, interval=1h, start_time=1759167530564, end_time=1760348674482, limit=500, loadId=1, user=klemen.zivkovic@gmail.com
+2025-11-20 15:07:09,413 INFO [app] app.py:1721 - [DATA_DEBUG] /data request: symbol=ETHUSDT, interval=1h, start_time=1759167530564, end_time=1760348674482, limit=500, user=klemen.zivkovic@gmail.com, is_latest_mode=False
+2025-11-20 15:07:09,491 INFO [app] app.py:821 - User klemen.zivkovic@gmail.com joined personal Socket.IO room
+2025-11-20 15:07:09,521 INFO [app] app.py:844 - Exiting route view_range path=/view-range method=GET duration_ms=31.28
+2025-11-20 15:07:09,583 INFO [app] app.py:1894 - Progress: 100.0
+2025-11-20 15:07:09,598 INFO [app] app.py:1693 - Starting /data request: symbol=ETHUSDT, interval=1h, start_time=1759167530564, end_time=1760348674482, limit=500, loadId=2, user=klemen.zivkovic@gmail.com
+2025-11-20 15:07:09,645 INFO [app] app.py:1721 - [DATA_DEBUG] /data request: symbol=ETHUSDT, interval=1h, start_time=1759167530564, end_time=1760348674482, limit=500, user=klemen.zivkovic@gmail.com, is_latest_mode=False
+2025-11-20 15:07:09,738 INFO [app] app.py:2092 - Completed /data request: symbol=ETHUSDT, interval=1h, returned_count=328, loadId=1, user=klemen.zivkovic@gmail.com, redis_total=328, redis_read=328
+2025-11-20 15:07:09,754 INFO [app] app.py:1894 - Progress: 100.0
+2025-11-20 15:07:09,785 INFO [app] app.py:2105 - [DATA_DEBUG] /data response: symbol=ETHUSDT, returned_count=328, time_range=[1759168800000 to 1760346000000], first_close=4162.29, last_close=4164.56, rect_volume_profiles_count=0
+2025-11-20 15:07:09,816 INFO [app] app.py:844 - Exiting route data path=/data method=GET duration_ms=449.95
+2025-11-20 15:07:09,955 INFO [app] app.py:2092 - Completed /data request: symbol=ETHUSDT, interval=1h, returned_count=328, loadId=2, user=klemen.zivkovic@gmail.com, redis_total=328, redis_read=328
+2025-11-20 15:07:09,986 INFO [app] app.py:2105 - [DATA_DEBUG] /data response: symbol=ETHUSDT, returned_count=328, time_range=[1759168800000 to 1760346000000], first_close=4162.29, last_close=4164.56, rect_volume_profiles_count=0
+2025-11-20 15:07:10,001 INFO [app] app.py:844 - Exiting route data path=/data method=GET duration_ms=403.04
+2025-11-20 15:07:10,002 INFO [app] app.py:844 - Exiting route drawings path=/drawings method=GET duration_ms=16.75
+2025-11-20 15:07:10,201 INFO [app] app.py:844 - Exiting route drawings path=/drawings method=GET duration_ms=76.18
+2025-11-20 15:07:23,344 INFO [app] app.py:844 - Exiting route view_range path=/view-range method=POST duration_ms=46.51
+2025-11-20 15:07:23,423 INFO [app] app.py:1693 - Starting /data request: symbol=ETHUSDT, interval=1h, start_time=1759416368005, end_time=1760597511923, limit=500, loadId=3, user=klemen.zivkovic@gmail.com
+2025-11-20 15:07:23,469 INFO [app] app.py:1721 - [DATA_DEBUG] /data request: symbol=ETHUSDT, interval=1h, start_time=1759416368005, end_time=1760597511923, limit=500, user=klemen.zivkovic@gmail.com, is_latest_mode=False
+2025-11-20 15:07:23,716 INFO [app] app.py:1894 - Progress: 100.0
+2025-11-20 15:07:23,870 INFO [app] app.py:2092 - Completed /data request: symbol=ETHUSDT, interval=1h, returned_count=328, loadId=3, user=klemen.zivkovic@gmail.com, redis_total=328, redis_read=328
+2025-11-20 15:07:23,901 INFO [app] app.py:2105 - [DATA_DEBUG] /data response: symbol=ETHUSDT, returned_count=328, time_range=[1759417200000 to 1760594400000], first_close=4437.09, last_close=4042.08, rect_volume_profiles_count=0
+2025-11-20 15:07:23,918 INFO [app] app.py:844 - Exiting route data path=/data method=GET duration_ms=495.31
+2025-11-20 15:07:24,135 INFO [app] app.py:844 - Exiting route drawings path=/drawings method=GET duration_ms=75.67
+2025-11-20 15:07:41,650 INFO [app] app.py:833 - Canceled load 3 for user klemen.zivkovic@gmail.com
+2025-11-20 15:07:41,695 INFO [app] app.py:844 - Exiting route view_range path=/view-range method=POST duration_ms=93.09
+2025-11-20 15:07:41,821 INFO [app] app.py:1693 - Starting /data request: symbol=ETHUSDT, interval=1h, start_time=1759689689685, end_time=1760870833603, limit=500, loadId=4, user=klemen.zivkovic@gmail.com
+2025-11-20 15:07:41,866 INFO [app] app.py:1721 - [DATA_DEBUG] /data request: symbol=ETHUSDT, interval=1h, start_time=1759689689685, end_time=1760870833603, limit=500, user=klemen.zivkovic@gmail.com, is_latest_mode=False
+2025-11-20 15:07:42,040 INFO [app] app.py:1894 - Progress: 100.0
+2025-11-20 15:07:42,161 WARNING [app] app.py:2026 - Significant candle continuity violations in /data response (potential data corruption): symbol=ETHUSDT interval=1h count=2, tolerance=0.1
+2025-11-20 15:07:42,191 WARNING [app] app.py:2030 - First few continuity violations: [(1760641200000, 3867.01, 1760644800000, 3867.14), (1760648400000, 3883.82, 1760652000000, 3884.0)]
+2025-11-20 15:07:42,315 INFO [app] app.py:2092 - Completed /data request: symbol=ETHUSDT, interval=1h, returned_count=328, loadId=4, user=klemen.zivkovic@gmail.com, redis_total=328, redis_read=328
+2025-11-20 15:07:42,362 INFO [app] app.py:2105 - [DATA_DEBUG] /data response: symbol=ETHUSDT, returned_count=328, time_range=[1759690800000 to 1760868000000], first_close=4487.26, last_close=3930.92, rect_volume_profiles_count=0
+2025-11-20 15:07:42,409 INFO [app] app.py:844 - Exiting route data path=/data method=GET duration_ms=587.60
+2025-11-20 15:07:42,611 INFO [app] app.py:844 - Exiting route drawings path=/drawings method=GET duration_ms=63.12
