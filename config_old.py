@@ -5,10 +5,6 @@ from pathlib import Path
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, TypedDict
 from pybit.unified_trading import HTTP
-from dotenv import load_dotenv
-
-# Load environment variables from .env file
-load_dotenv()
 
 # Kline data type definition
 class KlineData(TypedDict):
@@ -20,42 +16,34 @@ class KlineData(TypedDict):
     vol: float
 
 # Security
-SECRET_KEY = "super-secret"
-
-# Email configuration
-MAIL_SERVER = os.getenv('MAIL_SERVER', 'smtp.gmail.com')
-MAIL_PORT = int(os.getenv('MAIL_PORT', 587))
-MAIL_USE_TLS = os.getenv('MAIL_USE_TLS', 'True').lower() == 'true'
-MAIL_USERNAME = os.getenv('MAIL_USERNAME')
-MAIL_PASSWORD = os.getenv('MAIL_PASSWORD')
-MAIL_DEFAULT_SENDER = os.getenv('MAIL_DEFAULT_SENDER')
+SECRET_KEY = "super-secret"  # Replace with a strong, randomly generated key
 
 # Redis connection settings
 REDIS_HOST = "localhost"
 REDIS_PORT = 6379
 REDIS_DB = 0
 REDIS_PASSWORD = None
-REDIS_TIMEOUT = 10
+REDIS_TIMEOUT = 10  # Increased socket timeout
 REDIS_RETRY_COUNT = 3
 REDIS_RETRY_DELAY = 1
 
 # Trading configuration
-TRADING_SYMBOL = "BTCUSDT"
-TRADING_TIMEFRAME = "5m"
+TRADING_SYMBOL = "BTCUSDT"  # Symbol to trade for background tasks and AI defaults
+TRADING_TIMEFRAME = "5m"  # Timeframe for background tasks and AI defaults
 
 # Supported symbols and resolutions
 SUPPORTED_SYMBOLS = ["BTCUSDT", "XMRUSDT", "ETHUSDT", "SOLUSDT", "SUIUSDT", "PAXGUSDT", "BNBUSDT", "ADAUSDT", "BTCDOM", "APEXUSDT", "DOGEUSDT"]
-SUPPORTED_RESOLUTIONS = ["1m", "5m", "15m", "1h", "4h", "1d", "1w"]
+SUPPORTED_RESOLUTIONS = ["1m", "5m", "1h", "4h", "1d", "1w"]
 
 # Trade aggregator configuration
-TRADE_AGGREGATION_RESOLUTION = "1m"
+TRADE_AGGREGATION_RESOLUTION = "1m"  # Aggregate trades into 1-minute bars
 
 # Supported exchanges for trade aggregation (CCXT exchange IDs + DEX APIs)
 SUPPORTED_EXCHANGES = {
     "binance": {
         "name": "Binance",
         "type": "cex",
-        "symbols": {"BTCUSDT": "BTC/USDT", "ETHUSDT": "ETH/USDT", "SOLUSDT": "SOL/USDT", "ADAUSDT": "ADA/USDT", "BNBUSDT": "BNB/USDT"},
+        "symbols": {"BTCUSDT": "btcusdt", "ETHUSDT": "ethusdt", "SOLUSDT": "solusdt", "ADAUSDT": "adausdt", "BNBUSDT": "bnbusdt"},
         "rate_limit": 1200,  # requests per minute
         "weight_limit": 60000,  # API weight per minute
         "websocket_ping_interval": 30  # Ping every 30 seconds to keep connection alive
@@ -115,17 +103,81 @@ SUPPORTED_EXCHANGES = {
     }
 }
 
+SUPPORTED_RANGES = [
+    {"value": "1h", "label": "1h"},
+    {"value": "8h", "label": "8h"},
+    {"value": "24h", "label": "24h"},
+    {"value": "3d", "label": "3d"},
+    {"value": "7d", "label": "7d"},
+    {"value": "30d", "label": "30d"},
+    {"value": "3m", "label": "3M"},  # Approximately 3 * 30 days
+    {"value": "6m", "label": "6M"},  # Approximately 6 * 30 days
+    {"value": "1y", "label": "1Y"},  # Approximately 365 days
+    {"value": "3y", "label": "3Y"},  # Approximately 3 * 365 days
+]
+
+# Bybit resolution mapping
+BYBIT_RESOLUTION_MAP = {
+    "1m": "1", "5m": "5", "1h": "60", "4h": "240", "1d": "D", "1w": "W"
+}
+
 # Redis keys
 REDIS_LAST_SELECTED_SYMBOL_KEY = "last_selected_symbol"
+REDIS_OPEN_INTEREST_KEY_PREFIX = f"zset:open_interest:{TRADING_SYMBOL}:{TRADING_TIMEFRAME}"
+
+# Default symbol settings
+DEFAULT_SYMBOL_SETTINGS = {
+    'resolution': '1d',
+    'range': '30d',
+    'xAxisMin': None,
+    'xAxisMax': None,
+    'yAxisMin': None,
+    'yAxisMax': None,
+    'active_indicators': [],
+    'liveDataEnabled': True,
+    'streamDeltaTime': 1,  # New default for live stream update interval (seconds)
+    'useLocalOllama': False,
+    'localOllamaModelName': None,  # New default
+    'showAgentTrades': False  # New default for showing agent trades
+}
+
+# Trading Service Configuration
+TRADING_SERVICE_URL = os.getenv("TRADING_SERVICE_URL", "http://localhost:8000")
+
+# AI Configuration
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
+DEEPSEEK_BASE_URL = "https://api.deepseek.com"
+DEEPSEEK_API_MODEL_NAME = "deepseek-reasoner"
+
+LOCAL_OLLAMA_BASE_URL = "http://localhost:11434/v1"
+LOCAL_OLLAMA_MODEL_NAME = "llama3"
+
+LM_STUDIO_BASE_URL = "http://localhost:1234/v1"
+LM_STUDIO_MODEL_NAME = "local-model"  # LM Studio uses "local-model" as default
+
+MAX_DATA_POINTS_FOR_LLM = 100
+
+# YouTube Configuration
+YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY", "")
+YOUTUBE_CHANNELS = os.getenv("YOUTUBE_CHANNELS", "@MooninPapa")
 
 # Paths
 PROJECT_ROOT = Path(__file__).parent
+DATA_DIR = PROJECT_ROOT / "data"
+LOGS_DIR = PROJECT_ROOT / "logs"
 STATIC_DIR = PROJECT_ROOT / "static"
 TEMPLATES_DIR = PROJECT_ROOT / "templates"
+AUTH_CREDS_FILE = Path("c:/git/VidWebServer/authcreds.json")
 
 # Ensure directories exist
+DATA_DIR.mkdir(exist_ok=True)
+LOGS_DIR.mkdir(exist_ok=True)
 STATIC_DIR.mkdir(exist_ok=True)
 TEMPLATES_DIR.mkdir(exist_ok=True)
+
+# Create symbol directories
+for symbol in SUPPORTED_SYMBOLS:
+    (DATA_DIR / symbol).mkdir(exist_ok=True)
 
 # Available indicators configuration
 AVAILABLE_INDICATORS = [
@@ -140,23 +192,27 @@ AVAILABLE_INDICATORS = [
     {"id": "cto_line", "name": "CTO Line (Larsson)", "params": {"v1_period": 15, "m1_period": 19, "m2_period": 25, "v2_period": 29}},
 ]
 
-# Dataclass for timeframe config
 @dataclass(frozen=True)
 class TimeframeConfig:
     supported_resolutions: tuple[str, ...] = field(default_factory=lambda: tuple(SUPPORTED_RESOLUTIONS))
+    resolution_map: dict[str, str] = field(default_factory=lambda: BYBIT_RESOLUTION_MAP)
 
+# Global instances
 timeframe_config = TimeframeConfig()
 
+# Utility functions
 def get_timeframe_seconds(timeframe: str) -> int:
-    multipliers = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400, "1w": 604800}
+    """Convert timeframe string to seconds."""
+    multipliers = {"1m": 60, "5m": 300, "1h": 3600, "4h": 14400, "1d": 86400, "1w": 604800}
     return multipliers.get(timeframe, 3600)
 
 # Bybit API session - lazy initialization
 def get_session():
     """Get or create Bybit API session."""
+    from auth import creds
     return HTTP(
-        api_key=os.getenv("BYBIT_API_KEY"),
-        api_secret=os.getenv("BYBIT_API_SECRET"),
+        api_key=creds.api_key,
+        api_secret=creds.api_secret,
         testnet=False
     )
 

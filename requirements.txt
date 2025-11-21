@@ -4,9 +4,12 @@ python-dotenv
 Flask-Mail
 requests
 pybit
+ccxt
 Flask-SocketIO
 pandas-ta
 openai-whisper
 pydub
 httpx
 websocket-client
+websockets
+hyperliquid

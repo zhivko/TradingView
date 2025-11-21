@@ -17,12 +17,18 @@ from config import SUPPORTED_RESOLUTIONS, SUPPORTED_SYMBOLS, TRADING_SYMBOL, MAI
 from flask_socketio import SocketIO, emit, join_room
 from typing import Optional, Dict, Any, Tuple, List
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from background_fetcher import fetch_gap_from_binance, start_live_price_stream, get_live_price
 import pandas as pd
 import pandas_ta as ta
+import asyncio
+from background_tasks import fetch_and_publish_klines, fetch_and_aggregate_trades, fill_trade_data_gaps_background_task
+
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__, static_folder='static', template_folder='templates')
 socketio = SocketIO(app, cors_allowed_origins="*")
+
+# Initialize app state for background tasks
+app.state = type('State', (), {})()
 
 # Session / cookie security; set SESSION_COOKIE_SECURE=True in production behind HTTPS.
 app.config.update(
@@ -45,6 +51,8 @@ app.config['MAIL_DEFAULT_SENDER'] = MAIL_DEFAULT_SENDER
 mail = Mail(app)
 
 r = redis.Redis(host='localhost', port=6379, db=0)
+
+from background_fetcher import start_live_price_stream, get_live_price
 
 # Redis key templates for kline storage
 KLINES_ZSET_KEY_TEMPLATE = "klines_z:{symbol}:{interval}"
@@ -154,6 +162,13 @@ def upsert_klines_to_zset(
             latest_ts = rounded_ts
 
         member = json.dumps(k, separators=(",", ":"))
+        # Check for existing entries with same timestamp
+        existing_count = r.zcount(zset_key, rounded_ts, rounded_ts)
+        if existing_count > 0:
+            app.logger.warning(
+                "Attempting to insert duplicate timestamp in ZSET: symbol=%s interval=%s timestamp=%s existing_count=%d",
+                symbol, interval, rounded_ts, existing_count
+            )
         pipe.zadd(zset_key, {member: rounded_ts}, nx=True)
 
     results = pipe.execute()
@@ -477,250 +492,6 @@ import httpx
 
 
 
-def start_background_fetch():
-    """
-    Background task that continuously:
-      1) Scans Redis for gaps per (symbol, interval).
-      2) Submits gap fetches to a shared ThreadPoolExecutor for concurrent
-          historical backfill from Binance.
-      3) Periodically fetches the latest 500 candles per (symbol, interval).
-
-    The actual HTTP fetch + insert for a single gap lives in
-    background_fetcher.fetch_gap_from_binance so that this function stays
-    concise and orchestration-focused.
-    """
-    def fetch_loop():
-        while True:
-            executor = ThreadPoolExecutor(max_workers=8)
-            # First, discover all gaps across all (symbol, interval) pairs.
-            gap_tasks = []  # (symbol, interval, gap_start, gap_end, interval_ms, now_ms)
-            started_gap_symbols_intervals = set()
-            for symbol in SUPPORTED_SYMBOLS:
-                for interval in SUPPORTED_RESOLUTIONS:
-                    try:
-                        zset_key = get_klines_zset_key(symbol, interval)
-
-                        gap_fill_running_key = f'gap_fill_running:{symbol}:{interval}'
-                        last_gap_fill_key = f'last_gap_fill:{symbol}:{interval}'
-                        last_fill = r.get(last_gap_fill_key)
-                        current_time_sec = int(time.time())
-                        now_ms = current_time_sec * 1000
-
-                        # Gap fill per (symbol, interval) - only if not already running
-                        is_running = r.get(gap_fill_running_key)
-                        if not is_running:
-                            # Set running flag with 2 hour expiration (safety valve)
-                            r.set(gap_fill_running_key, str(current_time_sec), ex=7200)
-
-                            interval_ms = get_timeframe_seconds(interval) * 1000
-                            bootstrap_start_ms = 1577836800000
-
-                            gap_logger.info(
-                                "Starting gap analysis for symbol=%s interval=%s",
-                                symbol,
-                                interval,
-                            )
-
-                            # Detect gaps using ZSET scanning instead of loading full JSON lists.
-                            gaps = []
-                            earliest = get_earliest_kline_time(symbol, interval)
-                            latest = get_latest_kline_time(symbol, interval)
-
-                            if earliest is None or latest is None:
-                                # No existing data; bootstrap the entire historical range.
-                                gaps.append((bootstrap_start_ms, now_ms))
-                            else:
-                                # Leading gap from bootstrap_start_ms up to the earliest stored candle.
-                                if earliest > bootstrap_start_ms:
-                                    gaps.append(
-                                        (
-                                            bootstrap_start_ms,
-                                            int(earliest) - interval_ms,
-                                        )
-                                    )
-
-                                chunk_size = 5000
-                                prev_time: Optional[int] = None
-                                current_min = int(earliest)
-
-                                while True:
-                                    try:
-                                        # members: list of (member_bytes, score_float)
-                                        members = r.zrangebyscore(
-                                            zset_key,
-                                            current_min,
-                                            "+inf",
-                                            start=0,
-                                            num=chunk_size,
-                                            withscores=True,
-                                        )
-                                    except Exception:
-                                        app.logger.exception(
-                                            "Failed to scan zset for gaps: symbol=%s interval=%s",
-                                            symbol,
-                                            interval,
-                                        )
-                                        break
-
-                                    if not members:
-                                        break
-
-                                    for member, score in members:
-                                        try:
-                                            current_time = int(score)
-                                        except (TypeError, ValueError):
-                                            # Skip malformed scores
-                                            continue
-
-                                        if prev_time is not None:
-                                            expected_next = prev_time + interval_ms
-                                            if expected_next < current_time:
-                                                gaps.append(
-                                                    (expected_next, current_time - interval_ms)
-                                                )
-                                        prev_time = current_time
-
-                                    # Prepare next chunk range (open interval)
-                                    last_score = int(members[-1][1])
-                                    current_min = last_score + 1
-
-                                # Tail gap from last kline to "now"
-                                if (
-                                    prev_time is not None
-                                    and prev_time + interval_ms < now_ms
-                                ):
-                                    gaps.append((prev_time + interval_ms, now_ms))
-
-                            gap_logger.info(
-                                "Detected %d gaps for symbol=%s interval=%s",
-                                len(gaps),
-                                symbol,
-                                interval,
-                            )
-
-                            # Record gaps for parallel processing.
-                            for gap_start, gap_end in gaps:
-                                gap_tasks.append(
-                                    (symbol, interval, gap_start, gap_end, interval_ms, now_ms)
-                                )
-
-                            # Mark gap analysis completion time (even though gap fill may still be running).
-                            try:
-                                r.set(last_gap_fill_key, str(current_time_sec))
-                            except Exception:
-                                app.logger.exception(
-                                    "Failed to update last_gap_fill for symbol=%s interval=%s",
-                                    symbol,
-                                    interval,
-                                )
-
-                        # Ongoing fetch for latest klines; fetch from last stored timestamp to now
-                        try:
-                            latest_ts = get_latest_kline_time(symbol, interval)
-                            if latest_ts is not None:
-                                start_time = latest_ts
-                            else:
-                                # No data yet, start from bootstrap
-                                start_time = 1577836800000  # 2020-01-01
-
-                            end_time = current_time_sec * 1000
-
-                            if start_time >= end_time:
-                                # No new data to fetch
-                                continue
-
-                            # Fetch klines from start_time to end_time
-                            new_klines = fetch_klines_range(symbol, interval, start_time, end_time)
-                            if new_klines:
-                                # Validate candle continuity before storing
-                                if not validate_kline_continuity(new_klines, symbol, interval, latest_logger):
-                                    latest_logger.warning(
-                                        "Skipping storage of corrupted latest klines batch: symbol=%s interval=%s batch_size=%d",
-                                        symbol, interval, len(new_klines)
-                                    )
-                                    # Skip this batch but continue with next cycle - exit the try-except block cleanly
-                                    continue
-                                added_count, batch_earliest, batch_latest = upsert_klines_to_zset(
-                                    symbol, interval, new_klines
-                                )
-                                update_klines_meta_after_insert(
-                                    symbol,
-                                    interval,
-                                    batch_earliest,
-                                    batch_latest,
-                                    added_count,
-                                )
-                                batch_earliest_iso = (
-                                    ms_to_iso(batch_earliest)
-                                    if batch_earliest is not None
-                                    else str(batch_earliest)
-                                )
-                                batch_latest_iso = (
-                                    ms_to_iso(batch_latest)
-                                    if batch_latest is not None
-                                    else str(batch_latest)
-                                )
-                                latest_logger.info(
-                                    "Latest fetch batch: symbol=%s interval=%s added_count=%d "
-                                    "batch_earliest=%s (%s) batch_latest=%s (%s)",
-                                    symbol,
-                                    interval,
-                                    added_count,
-                                    batch_earliest,
-                                    batch_earliest_iso,
-                                    batch_latest,
-                                    batch_latest_iso,
-                                )
-                        except Exception:
-                            app.logger.exception(
-                                "Error during latest klines fetch for symbol=%s interval=%s",
-                                symbol,
-                                interval,
-                            )
-                    except Exception:
-                        # Ensure one bad (symbol, interval) never crashes the background thread.
-                        app.logger.exception(
-                            "Unexpected error in background fetch loop for symbol=%s interval=%s",
-                            symbol,
-                            interval,
-                        )
-
-            # After scanning all (symbol, interval) pairs, execute gap fills in parallel.
-            if gap_tasks:
-                app.logger.info(
-                    "Submitting %d gap tasks to ThreadPoolExecutor", len(gap_tasks)
-                )
-                futures = []
-                for symbol, interval, gap_start, gap_end, interval_ms, now_ms in gap_tasks:
-                    futures.append(
-                        executor.submit(
-                            fetch_gap_from_binance,
-                            symbol,
-                            interval,
-                            gap_start,
-                            gap_end,
-                            interval_ms,
-                            upsert_klines_to_zset,
-                            update_klines_meta_after_insert,
-                            gap_logger,
-                            app.logger,
-                            now_ms,
-                            r,  # Redis client
-                            "gap_fill_running:{symbol}:{interval}",  # key template
-                        )
-                    )
-
-                # Optionally wait for completion to have bounded concurrency per cycle.
-                for f in as_completed(futures):
-                    try:
-                        f.result()
-                    except Exception:
-                        app.logger.exception("Gap task failed in executor")
-
-            time.sleep(60)
-
-    t = threading.Thread(target=fetch_loop, daemon=True)
-    t.start()
 
 # Background fetch starts when app runs
 
@@ -764,8 +535,19 @@ def fetch_klines_range(symbol, interval, start_time, end_time, klines=None, prog
             try:
                 resp = requests.get(base_url, params=params)
                 new_klines = resp.json()
+                if not isinstance(new_klines, list):
+                    app.logger.error(f"API returned non-list response: {new_klines}")
+                    break
                 if not new_klines:
                     break
+                # Ensure timestamps are integers (convert if needed)
+                for kline in new_klines:
+                    if len(kline) >= 6:
+                        if isinstance(kline[0], str):
+                            try:
+                                kline[0] = int(kline[0])
+                            except ValueError:
+                                continue
                 fetched_klines.extend(new_klines)
                 klines.extend(new_klines)
                 current_start = new_klines[-1][0] + interval_ms
@@ -784,7 +566,7 @@ def fetch_klines_range(symbol, interval, start_time, end_time, klines=None, prog
                 if current_start >= end_time:
                     break
             except Exception as e:
-                print(f"Error fetching klines: {e}")
+                app.logger.error(f"Error fetching klines: {e}", exc_info=True)
                 break
 
         # Filter
@@ -831,8 +613,27 @@ def fetch_klines_range(symbol, interval, start_time, end_time, klines=None, prog
             try:
                 resp = requests.get(base_url, params=params)
                 new_klines = resp.json()
+                if not isinstance(new_klines, list):
+                    app.logger.error(f"API returned non-list response: {new_klines}")
+                    break
                 if not new_klines:
                     break
+
+                # Validate and log the structure of first kline for debugging
+                if new_klines and len(new_klines) > 0:
+                    first_kline = new_klines[0]
+                    app.logger.debug(f"API response structure for {symbol} {interval}: len={len(first_kline)}, first_element_type={type(first_kline[0])}, first_element_value={first_kline[0] if len(first_kline) > 0 else 'empty'}")
+                    # Ensure timestamps are integers (convert if needed)
+                    for kline in new_klines:
+                        if len(kline) >= 6:
+                            # Standard kline format: [timestamp, open, high, low, close, volume, ...]
+                            if isinstance(kline[0], str):
+                                try:
+                                    kline[0] = int(kline[0])
+                                except ValueError:
+                                    app.logger.error(f"Invalid timestamp format in API response: {kline[0]}")
+                                    continue
+                
                 klines.extend(new_klines)
                 current_start = new_klines[-1][0] + interval_ms
                 if total_range is not None and progress_callback:
@@ -845,10 +646,24 @@ def fetch_klines_range(symbol, interval, start_time, end_time, klines=None, prog
                 if current_start >= end_time:
                     break
             except Exception as e:
-                print(f"Error fetching klines: {e}")
+                app.logger.error(f"Error fetching klines: {e}", exc_info=True)
                 break
 
-        klines = [k for k in klines if k[0] <= end_time]
+        # Filter klines with proper validation to prevent processing corrupted data
+        valid_klines = []
+        for k in klines:
+            try:
+                # Validate kline structure and timestamp
+                if len(k) >= 6 and k[0] is not None:
+                    timestamp = int(k[0])
+                    if timestamp <= end_time:
+                        valid_klines.append(k)
+            except (ValueError, TypeError, IndexError) as e:
+                # Skip invalid klines and log for debugging
+                app.logger.warning(f"Skipping invalid kline: {e}, kline_data: {k[:3] if len(k) > 3 else k}")
+                continue
+        
+        klines = valid_klines
 
         if progress_callback and total_range is not None:
             try:
@@ -2855,23 +2670,8 @@ def transcribe_audio():
 
             app.logger.info(f"Audio transcription completed. Text length: {len(transcribed_text)}, Language: {detected_language}")
 
-            # Process transcribed text with AI analysis
-            symbol = request.form.get('symbol', 'BTCUSDT')
-            resolution = request.form.get('resolution', '1h')
-            xAxisMin = request.form.get('xAxisMin')
-            xAxisMax = request.form.get('xAxisMax')
-            activeIndicatorIds = request.form.get('activeIndicatorIds', '[]')
-            use_local_ollama = request.form.get('use_local_ollama', 'false').lower() == 'true'
-            use_gemini = request.form.get('use_gemini', 'false').lower() == 'true'
-
-            # Parse activeIndicatorIds from JSON string to list
-            try:
-                parsed_indicators = json.loads(activeIndicatorIds) if activeIndicatorIds else []
-            except json.JSONDecodeError:
-                parsed_indicators = []
-
             # Get AI analysis using existing AI endpoint logic
-            ai_response = get_answer_from_LLM_from_audio(transcribed_text, symbol, resolution, local_ollama_model_name="openai/gpt-oss-20b", user_id=get_current_user_id())
+            ai_response = get_answer_from_LLM_from_audio(transcribed_text, local_ollama_model_name="openai/gpt-oss-20b", user_id=get_current_user_id())
 
             return jsonify({
                 "status": "success",
@@ -2893,7 +2693,7 @@ def transcribe_audio():
         return jsonify({"error": f"Audio transcription failed: {str(e)}"}), 500
 
 
-def get_answer_from_LLM_from_audio(question, symbol, resolution, local_ollama_model_name, user_id):
+def get_answer_from_LLM_from_audio(question, local_ollama_model_name, user_id):
     """Simple AI analysis for audio transcription based on existing AI logic"""
     try:
         app.logger.info("get_simple_response_from_llm for_audio called with question length: %d", len(question))
@@ -2989,6 +2789,28 @@ def get_answer_from_LLM_from_audio(question, symbol, resolution, local_ollama_mo
             "complete": True
         }, to=user_id)
 
+def run_fetch_and_publish_klines(app):
+    """Sync wrapper to run async fetch_and_publish_klines in a new event loop"""
+    asyncio.run(fetch_and_publish_klines(app))
+
+def run_fetch_and_aggregate_trades(app):
+    """Sync wrapper to run async fetch_and_aggregate_trades in a new event loop"""
+    asyncio.run(fetch_and_aggregate_trades(app))
+
+def run_fill_trade_data_gaps_background_task(app):
+    """Sync wrapper to run async fill_trade_data_gaps_background_task in a new event loop"""
+    asyncio.run(fill_trade_data_gaps_background_task(app))
+
+@socketio.on('connect')
+def handle_connect(auth=None):
+    # Start background tasks when first client connects
+    if not hasattr(app.state, 'fetch_klines_task'):
+        app.logger.info("🔧 Starting background tasks with sync wrappers for async functions")
+        app.state.fetch_klines_task = socketio.start_background_task(run_fetch_and_publish_klines, app)
+        app.state.trade_aggregator_task = socketio.start_background_task(run_fetch_and_aggregate_trades, app)
+        app.state.trade_gap_filler_task = socketio.start_background_task(run_fill_trade_data_gaps_background_task, app)
+        app.logger.info("✅ Background tasks started successfully")
+
 
 if __name__ == "__main__":
     # Preload Whisper model
@@ -3012,8 +2834,6 @@ if __name__ == "__main__":
         app.logger.error(f"FAILED TO LOAD WHISPER MODEL: {e}", exc_info=True)
         app.whisper_model = None
 
-    start_background_fetch()
-    
     # Start live price stream from Binance
     def on_live_price(symbol: str, price: float, timestamp: int):
         """Callback to broadcast live prices to all connected clients"""
@@ -3027,6 +2847,6 @@ if __name__ == "__main__":
             app.logger.error(f"Error emitting live price: {e}")
     
     start_live_price_stream(SUPPORTED_SYMBOLS, r, app.logger, on_live_price)
-    
+
     # Use SocketIO's server so WebSocket events (progress, live, etc.) work.
     socketio.run(app, host='0.0.0.0', debug=True)

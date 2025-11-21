@@ -23,6 +23,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const shapeSendEmailCheckbox = document.getElementById('shape-send-email-checkbox');
   const deleteShapeBtn = document.getElementById('delete-shape-btn');
 
+  const xAxisMinEl = document.getElementById('x-axis-min');
+  const xAxisMaxEl = document.getElementById('x-axis-max');
+
   // AI elements
   const aiSuggestionBtn = document.getElementById('ai-suggestion-btn');
   const aiSuggestionTextarea = document.getElementById('ai-suggestion-textarea');
@@ -123,6 +126,30 @@ document.addEventListener('DOMContentLoaded', () => {
   function resetProgress() {
     lastDisplayedProgress = 0;
     setProgress(0, 'Ready');
+  }
+
+  function updateXAxisRangeDisplay() {
+    const chartEl = document.getElementById('chart');
+    if (!chartEl || !chartEl.layout || !chartEl.layout.xaxis || !xAxisMinEl || !xAxisMaxEl) {
+      return;
+    }
+
+    const xRange = chartEl.layout.xaxis.range;
+    if (Array.isArray(xRange) && xRange.length === 2) {
+      const minDate = new Date(xRange[0]);
+      const maxDate = new Date(xRange[1]);
+
+      if (!isNaN(minDate.getTime()) && !isNaN(maxDate.getTime())) {
+        xAxisMinEl.textContent = minDate.toISOString();
+        xAxisMaxEl.textContent = maxDate.toISOString();
+      } else {
+        xAxisMinEl.textContent = '--';
+        xAxisMaxEl.textContent = '--';
+      }
+    } else {
+      xAxisMinEl.textContent = '--';
+      xAxisMaxEl.textContent = '--';
+    }
   }
 
   function mapStageToOverallProgress(stage, direction, pctStage) {
@@ -2008,28 +2035,9 @@ Volume: ${lvl.totalVolume}`,
 
   async function plotChart(data, range = {}, shapes = [], rectVolumeProfiles = []) {
     console.log('plotChart called with range:', range);
-    console.log('[DEBUG plotChart] CALLED FROM:', new Error().stack);
-    console.log('[DEBUG plotChart] Range details:', {
-      xaxis: range.xaxis,
-      yaxis: range.yaxis,
-      xaxisRange: range.xaxis?.range,
-      xaxisRangeIsNull: range.xaxis?.range === null,
-      xaxisRangeIsUndefined: range.xaxis?.range === undefined,
-      yaxisRange: range.yaxis?.range,
-      yaxisRangeIsNull: range.yaxis?.range === null,
-      yaxisRangeIsUndefined: range.yaxis?.range === undefined
-    });
+    // Removed debug logging that accessed range parameters
 
-    // Check if we have a current user-set range from zoom/pan that should be preserved
-    let preserveCurrentRange = false;
-    if (typeof window !== 'undefined' && window.currentZoomPanRange) {
-      preserveCurrentRange = true;
-      console.log('[DEBUG plotChart] Preserving user zoom/pan range');
-      // Use the preserved range instead of the passed range
-      range = window.currentZoomPanRange;
-      // Clear the preserved range after using it
-      delete window.currentZoomPanRange;
-    }
+    // Removed range preservation logic to prevent infinite loop
     // Reset any in-memory shape selection whenever we fully (re)plot the chart
     selectedShapeIndex = null;
     hoveredShapeIndex = null;
@@ -2062,7 +2070,7 @@ Volume: ${lvl.totalVolume}`,
       name: currentSymbol
     };
     
-    // Build xaxis configuration explicitly
+    // Build xaxis configuration - NO programmatic range setting to prevent infinite loop
     const xaxisConfig = {
       title: 'Time',
       type: 'date',
@@ -2071,39 +2079,10 @@ Volume: ${lvl.totalVolume}`,
       rangeslider: { visible: false }
     };
     
-    // Set range or autorange for x-axis
-    if (range.xaxis && Array.isArray(range.xaxis.range) && range.xaxis.range.length === 2) {
-      // Convert range values to ISO strings
-      xaxisConfig.range = range.xaxis.range.map(v => new Date(v).toISOString());
-      xaxisConfig.autorange = false; // Explicitly disable autorange when setting explicit range
-      console.log('[RANGE_CHANGE] plotChart setting xaxis.range to ISO strings:', xaxisConfig.range);
-    } else if (range.xaxis && range.xaxis.range === null) {
-      xaxisConfig.autorange = true;
-      console.log('[RANGE_CHANGE] plotChart setting xaxis.autorange = true');
-    } else {
-      // Default to autorange if no range specified
-      xaxisConfig.autorange = true;
-      console.log('[RANGE_CHANGE] plotChart no range specified, defaulting to xaxis.autorange = true');
-    }
-    
-    // Build yaxis configuration explicitly
+    // Build yaxis configuration - NO programmatic range setting to prevent infinite loop
     const yaxisConfig = {
       title: 'Price'
     };
-    
-    // Set range or autorange for y-axis
-    if (range.yaxis && Array.isArray(range.yaxis.range) && range.yaxis.range.length === 2) {
-      yaxisConfig.range = range.yaxis.range;
-      yaxisConfig.autorange = false; // Explicitly disable autorange when setting explicit range
-      console.log('[RANGE_CHANGE] plotChart setting yaxis.range to:', yaxisConfig.range);
-    } else if (range.yaxis && range.yaxis.range === null) {
-      yaxisConfig.autorange = true;
-      console.log('[RANGE_CHANGE] plotChart setting yaxis.autorange = true');
-    } else {
-      // Default to autorange if no range specified
-      yaxisConfig.autorange = true;
-      console.log('[RANGE_CHANGE] plotChart no range specified, defaulting to yaxis.autorange = true');
-    }
     
     // Build layout with proper range handling
     const layout = {
@@ -2123,29 +2102,7 @@ Volume: ${lvl.totalVolume}`,
       showlegend: false
     };
 
-    // Debug logging for X-axis range being set in plotChart
-    console.log('[DEBUG plotChart] Setting X-axis range:', {
-      range: range,
-      xaxisRange: range.xaxis?.range,
-      xaxisRangeType: typeof range.xaxis?.range,
-      xaxisRangeLength: Array.isArray(range.xaxis?.range) ? range.xaxis.range.length : 'not array',
-      xaxisRangeValues: Array.isArray(range.xaxis?.range) ? range.xaxis.range.map((v, i) => `${i}: ${new Date(v).toISOString()} (${v})`) : 'not array',
-      layoutXAxisRange: layout.xaxis.range,
-      willSetRange: range.xaxis && Array.isArray(range.xaxis.range)
-    });
-
-    // More detailed logging for each range value
-    if (range.xaxis?.range && Array.isArray(range.xaxis.range)) {
-      console.log('[DEBUG plotChart] Detailed X-axis range values:', {
-        rangeArray: range.xaxis.range,
-        firstValue: range.xaxis.range[0],
-        firstValueDate: new Date(range.xaxis.range[0]).toISOString(),
-        secondValue: range.xaxis.range[1], 
-        secondValueDate: new Date(range.xaxis.range[1]).toISOString()
-      });
-    } else {
-      console.log('[DEBUG plotChart] NO X-axis range will be set (null/undefined/not array)');
-    }
+    // Removed all debug logging that accessed range properties
     const config = {
       responsive: true,
       displayModeBar: false,
@@ -2166,20 +2123,12 @@ Volume: ${lvl.totalVolume}`,
 
     setProgress(75, 'Chart processing progress:');
     console.log('Calling Plotly.react');
-    console.log('[DEBUG Plotly.react] About to call Plotly.react with layout:', {
-      layoutXAxis: layout.xaxis,
-      layoutXAxisRange: layout.xaxis.range,
-      layoutXAxisAutorange: layout.xaxis.autorange,
-      layoutYAxisRange: layout.yaxis.range,
-      layoutYAxisAutorange: layout.yaxis.autorange,
-      layoutXAxisRangeDates: Array.isArray(layout.xaxis.range) ? layout.xaxis.range.map(v => new Date(v).toISOString()) : 'null/undefined'
-    });
-    console.log('[DEBUG Plotly.react] First 3 x values:', traces[0].x.slice(0, 3));
-    console.log('[DEBUG Plotly.react] Last 3 x values:', traces[0].x.slice(-3));
+    // Removed debug logging that accessed layout range properties
 
     Plotly.react('chart', traces, layout, config).then(() => {
       const chartEl = document.getElementById('chart');
       ensureShapeEmailPropertyDefaults(chartEl);
+      updateXAxisRangeDisplay();
       
       // Initialize hash of user shapes to detect actual changes (not live price updates)
       if (chartEl && chartEl._fullLayout && Array.isArray(chartEl._fullLayout.shapes)) {
@@ -2203,6 +2152,12 @@ Volume: ${lvl.totalVolume}`,
       document.getElementById('chart').on('plotly_relayout', async (eventdata) => {
         //console.log('plotly_relayout triggered:', eventdata);
 
+        // Ignore relayout events during programmatic updates to prevent infinite loops
+        if (window.isProgrammaticUpdate) {
+          console.log('Ignoring relayout during programmatic update');
+          return;
+        }
+
         // Extract range values first to avoid initialization issues
         let xRange = eventdata['xaxis.range'] || (eventdata['xaxis.range[0]'] ? [eventdata['xaxis.range[0]'], eventdata['xaxis.range[1]']] : null);
         let yRange = eventdata['yaxis.range'] || (eventdata['yaxis.range[0]'] ? [eventdata['yaxis.range[0]'], eventdata['yaxis.range[1]']] : null);
@@ -2217,17 +2172,17 @@ Volume: ${lvl.totalVolume}`,
         */
 
         // Check if this is a user-initiated zoom/pan operation
-        // User zoom/pan events have xaxis.range[0], xaxis.range[1], yaxis.range[0], yaxis.range[1] format
+        // Only trigger for actual user interactions, not programmatic range changes
         const isUserZoomPan = eventdata &&
           (eventdata['xaxis.range[0]'] !== undefined || eventdata['yaxis.range[0]'] !== undefined ||
-           eventdata['xaxis.range[1]'] !== undefined || eventdata['yaxis.range[1]'] !== undefined);
+           eventdata['xaxis.range[1]'] !== undefined || eventdata['yaxis.range[1]'] !== undefined) &&
+          // Add additional checks to distinguish user vs programmatic changes
+          !eventdata['xaxis.autorange'] && !eventdata['yaxis.autorange'];
 
         if (isUserZoomPan) {
-          // Store the current zoom/pan range so plotChart knows to preserve it
-          window.currentZoomPanRange = { xaxis: { range: xRange }, yaxis: { range: yRange } };
           console.log('User zoom/pan operation detected, fetching new data for zoomed range');
         } else {
-
+          // Ignore programmatic range changes to prevent infinite loop
         }
 
         // Detect shape changes (draw/add/move/delete) and save drawings
@@ -2347,8 +2302,12 @@ Volume: ${lvl.totalVolume}`,
         const isAutoscaleEvent = (eventdata['xaxis.autorange'] || eventdata['xaxis.autorange'] === true || 
                                  eventdata['yaxis.autorange'] || eventdata['yaxis.autorange'] === true);
         
-        if (xRange !== null || yRange !== null || isAutoscaleEvent) {
-          console.log('Range changed (including autoscale), debouncing...');
+        // Update X-axis range display whenever it changes
+        updateXAxisRangeDisplay();
+
+        // Only debounce for user zoom/pan events, not programmatic range changes
+        if (isUserZoomPan) {
+          console.log('User zoom/pan detected, debouncing...');
           clearTimeout(debounceTimeout);
           debounceTimeout = setTimeout(async () => {
             if (currentAbortController) {
@@ -2408,15 +2367,72 @@ Volume: ${lvl.totalVolume}`,
                   });
 
                   const drawings = await loadDrawings(currentSymbol);
-                  await plotChart(
-                    result,
-                    {
-                      xaxis: { range: dataXRange },
-                      yaxis: { range: currentYRange && Array.isArray(currentYRange) && currentYRange.length === 2 ? currentYRange : yRange }
+
+                  // Set flag to indicate this is a programmatic update, not user action
+                  window.isProgrammaticUpdate = true;
+
+                  // Create new chart data with updated price data
+                  const priceTrace = {
+                    x: result.time.map(t => new Date(t).toISOString()),
+                    open: result.open,
+                    high: result.high,
+                    low: result.low,
+                    close: result.close,
+                    type: 'candlestick',
+                    name: currentSymbol
+                  };
+
+                  // Combine with volume profile traces if they exist
+                  let traces = [priceTrace];
+                  if (Array.isArray(result.rect_volume_profiles) && result.rect_volume_profiles.length && Array.isArray(drawings) && drawings.length) {
+                    const vpTraces = createRectangleVolumeProfileBars(result.rect_volume_profiles, drawings);
+                    if (Array.isArray(vpTraces) && vpTraces.length) {
+                      traces = traces.concat(vpTraces);
+                    }
+                  }
+
+                  // Create layout preserving the current ranges
+                  const layout = {
+                    dragmode: 'pan',
+                    xaxis: {
+                      title: 'Time',
+                      type: 'date',
+                      tickformat: '%Y-%m-%d %H:%M',
+                      hoverformat: '%Y-%m-%d %H:%M:%S',
+                      rangeslider: { visible: false },
+                      range: xRange  // Preserve user's X-range
                     },
-                    drawings,
-                    Array.isArray(result.rect_volume_profiles) ? result.rect_volume_profiles : []
-                  );
+                    yaxis: {
+                      title: 'Price',
+                      range: currentYRange  // Preserve user's Y-range
+                    },
+                    shapes: drawings || [],
+                    edits: {
+                      shapePosition: true
+                    },
+                    margin: {
+                      l: 40,
+                      r: 40,
+                      t: 10,
+                      b: 40
+                    },
+                    showlegend: false
+                  };
+
+                  const config = {
+                    responsive: true,
+                    displayModeBar: false,
+                    scrollZoom: true,
+                    editable: true,
+                    paper_bgcolor: 'transparent',
+                    plot_bgcolor: 'transparent'
+                  };
+
+                  // Fully replace the chart with new data
+                  await Plotly.react(chartEl, traces, layout, config);
+
+                  // Clear flag after update
+                  delete window.isProgrammaticUpdate;
                 } else {
                   console.log(`[debounce] Fetch failed for loadId: ${loadId}, status: ${resp.status}`);
                   console.error('Failed to fetch data:', result.error);
